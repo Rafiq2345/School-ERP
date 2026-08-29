@@ -13,11 +13,12 @@ node_modules/
 *.pem
 *.key
 
-# Next.js Build Output
+# Next.js Build Output & Cache
 .next/
 out/
 build/
 dist/
+*.tsbuildinfo
 
 # Prisma & Database Local Artifacts
 prisma/*.db
@@ -42,4 +43,3 @@ Thumbs.db
 *.ntvs*
 *.njsproj
 *.sln
-
