@@ -15,6 +15,11 @@ describe('Localization & Formatting Foundation', () => {
 
     expect(enNav).toBe('Fees & Billing');
     expect(urNav).toBe('فیس و بلنگ');
+
+    const enAdminConfig = getTranslation('en', 'app.admin_config');
+    const urAdminConfig = getTranslation('ur', 'app.admin_config');
+    expect(enAdminConfig).toBe('Administration Configuration');
+    expect(urAdminConfig).toBe('انتظامی ترتیبات و کنٹرول');
   });
 
   it('should return fallback key when translation is missing', () => {

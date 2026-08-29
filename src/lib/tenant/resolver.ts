@@ -36,3 +36,4 @@ export function resolveTenantFromRequest(headers?: Headers | Record<string, stri
     schoolName: 'Greenwood International School',
   };
 }
+

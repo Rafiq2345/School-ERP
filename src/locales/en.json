@@ -8,6 +8,7 @@
     "language": "Language",
     "profile": "Profile",
     "settings": "Settings",
+    "admin_config": "Administration Configuration",
     "logout": "Logout",
     "session": "Active Session",
     "portal": "Portal"
@@ -34,10 +35,12 @@
     "hr": "HR & Payroll",
     "accounts": "Accounts & Ledger",
     "library": "Library",
-    "inventory": "Inventory & Store",
-    "publishing": "Publishing Hub",
+    "inventory": "Inventory",
+    "communication": "Communication",
+    "reports": "Reports & Analytics",
     "audit": "Audit Trail",
-    "settings": "School Settings"
+    "more": "More",
+    "settings": "Administration Configuration"
   },
   "portals": {
     "admin": "School Admin Portal",

@@ -20,3 +20,4 @@ export function getAuthorizedDashboardRoute(userType: UserType): string {
       return '/login';
   }
 }
+

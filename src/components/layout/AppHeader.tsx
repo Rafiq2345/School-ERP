@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { School, Search, Bell } from 'lucide-react';
+import { School, Search, Bell, Sliders } from 'lucide-react';
 import { AuthenticatedUser, SupportedLocale, TenantContext } from '@/lib/types';
 import { LanguageSwitch } from './LanguageSwitch';
 import { UserMenu } from './UserMenu';
@@ -20,24 +20,38 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        {/* Brand & School Logo */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-md">
-            <School className="w-5 h-5" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
+        {/* Left Side: School Identity & Administration Configuration */}
+        <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-xs">
+              <School className="w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <span className="font-bold text-sm sm:text-base text-slate-900 leading-tight truncate max-w-[200px] sm:max-w-xs">
+                {tenant.schoolName}
+              </span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium">
+                {t('app.tagline')}
+              </span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-base text-slate-900 leading-tight">
-              {tenant.schoolName}
-            </span>
-            <span className="text-[11px] text-slate-500 font-medium tracking-wide">
-              {t('app.tagline')}
-            </span>
-          </div>
+
+          {/* Clearly Accessible "Administration Configuration" Control */}
+          {user.userType === 'ADMIN' && (
+            <a
+              href="/admin/settings"
+              title={t('app.admin_config')}
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition-all shadow-2xs ms-2"
+            >
+              <Sliders className="w-3.5 h-3.5 text-slate-500" />
+              <span>{t('app.admin_config')}</span>
+            </a>
+          )}
         </div>
 
-        {/* Global Search Placeholder (Desktop) */}
-        <div className="hidden md:flex items-center flex-1 max-w-md mx-4">
+        {/* Global Search Bar (Desktop) */}
+        <div className="hidden md:flex items-center flex-1 max-w-sm mx-2">
           <div className="relative w-full">
             <Search className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
             <input
@@ -48,12 +62,12 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
           </div>
         </div>
 
-        {/* Controls: Notifications, Language Switch, User Menu */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Notifications Placeholder */}
+        {/* Right Side Controls: Notifications, Language Switch, Clean User Avatar */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {/* Notifications Button */}
           <button
             type="button"
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative transition-colors"
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative transition-colors cursor-pointer"
             title={t('app.notifications')}
           >
             <Bell className="w-4 h-4" />
@@ -63,7 +77,7 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
           {/* Language Switch */}
           <LanguageSwitch currentLocale={locale} onLocaleChange={onLocaleChange} />
 
-          {/* User Menu */}
+          {/* Clean User Menu (Avatar Only, No Text Block) */}
           <UserMenu user={user} tenant={tenant} onLogout={onLogout} />
         </div>
       </div>
