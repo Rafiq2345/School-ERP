@@ -4,7 +4,9 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.string().default('3000'),
   APP_URL: z.string().default('http://localhost:3000'),
-  DATABASE_URL: z.string().default('file:./dev.db'),
+  DATABASE_URL: z
+    .string()
+    .default('postgresql://postgres:postgres@localhost:5432/school_erp_dev?schema=public'),
   SESSION_SECRET: z.string().min(16).default('development-session-secret-change-in-prod-12345'),
   CSRF_SECRET: z.string().min(16).default('development-csrf-secret-change-in-prod-12345'),
   DEFAULT_LOCALE: z.enum(['en', 'ur']).default('en'),

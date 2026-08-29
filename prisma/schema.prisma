@@ -1,11 +1,11 @@
-// Prisma Schema for School-ERP (Multi-Tenant Technical Foundation)
+// Prisma Schema for School-ERP (Standard PostgreSQL Multi-Tenant Database)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -91,6 +91,7 @@ model User {
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
+  @@index([tenantId, userType])
   @@map("users")
 }
 
@@ -192,7 +193,7 @@ model PasswordResetToken {
 }
 
 // ---------------------------------------------------------
-// 4. UNIVERSAL AUDIT LOG
+// 4. UNIVERSAL AUDIT LOG (POSTGRESQL JSONB)
 // ---------------------------------------------------------
 
 model AuditLog {
@@ -206,8 +207,8 @@ model AuditLog {
   entityType    String   @map("entity_type")
   entityId      String   @map("entity_id")
   action        String // CREATE, UPDATE, DELETE, APPROVE, PRINT, EXPORT, PUBLISH, UNPUBLISH, REVERSE
-  oldValues     String?  @map("old_values") // JSON string
-  newValues     String?  @map("new_values") // JSON string
+  oldValues     Json?    @map("old_values")
+  newValues     Json?    @map("new_values")
   changeSummary String?  @map("change_summary")
   requestId     String?  @map("request_id")
   timestamp     DateTime @default(now())
@@ -258,7 +259,7 @@ model PublishingBatch {
   successCount       Int      @default(0) @map("success_count")
   failedCount        Int      @default(0) @map("failed_count")
   initiatedByUserId  String   @map("initiated_by_user_id")
-  summaryJson        String?  @map("summary_json") // JSON string
+  summaryJson        Json?    @map("summary_json")
   createdAt          DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -333,7 +334,7 @@ model ModuleFeatureToggle {
   tenantId        String   @map("tenant_id")
   moduleCode      String   @map("module_code")
   isEnabled       Boolean  @default(true) @map("is_enabled")
-  configOverrides String?  @map("config_overrides") // JSON string
+  configOverrides Json?    @map("config_overrides")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
