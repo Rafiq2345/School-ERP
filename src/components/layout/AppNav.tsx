@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import {
   LayoutDashboard,
   UserPlus,
@@ -14,9 +14,7 @@ import {
   Library,
   Package,
   Send,
-  History,
   BarChart3,
-  ChevronDown,
 } from 'lucide-react';
 import { SupportedLocale, UserType } from '@/lib/types';
 import { getTranslation } from '@/lib/i18n/translations';
@@ -28,23 +26,10 @@ interface AppNavProps {
 }
 
 export function AppNav({ activePath, userType, locale }: AppNavProps) {
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
   const t = (key: string) => getTranslation(locale, key);
 
-  // Close "More" menu on click outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
-        setIsMoreOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Primary operational modules (always directly visible)
-  const primaryAdminNav = [
+  // Complete Primary Operational Modules for School Admin (All directly visible, NO "More" dropdown, NO standalone Audit Trail)
+  const adminNav = [
     { label: t('nav.admissions'), href: '/admin/admissions', icon: UserPlus },
     { label: t('nav.students'), href: '/admin/students', icon: GraduationCap },
     { label: t('nav.academics'), href: '/admin/academics', icon: BookOpen },
@@ -55,13 +40,8 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
     { label: t('nav.accounts'), href: '/admin/accounts', icon: Receipt },
     { label: t('nav.library'), href: '/admin/library', icon: Library },
     { label: t('nav.inventory'), href: '/admin/inventory', icon: Package },
-  ];
-
-  // Secondary / lower-frequency modules (housed inside "More" dropdown)
-  const moreAdminNav = [
     { label: t('nav.communication'), href: '/admin/communication', icon: Send },
     { label: t('nav.reports'), href: '/admin/reports', icon: BarChart3 },
-    { label: t('nav.audit'), href: '/admin/audit', icon: History },
   ];
 
   const teacherNav = [
@@ -89,19 +69,15 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
     { label: t('nav.hr'), href: '/staff/payslips', icon: Users },
   ];
 
-  const isMoreActive = moreAdminNav.some(
-    (item) => activePath === item.href || activePath.startsWith(item.href)
-  );
-
   return (
-    <nav className="bg-white border-b border-slate-200 px-4 sm:px-6 shadow-xs relative z-30">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-1 py-1">
-        {/* Navigation Items in a single, professional row (NO scrollbar) */}
-        <div className="flex items-center flex-wrap gap-0.5 sm:gap-1 text-xs">
+    <nav className="bg-white border-b border-slate-200 px-3 sm:px-6 shadow-2xs relative z-30">
+      <div className="max-w-7xl mx-auto flex items-center justify-between py-1">
+        {/* Single Clean Row of Operational Modules (Zero horizontal scrollbar) */}
+        <div className="flex items-center flex-wrap gap-0.5 sm:gap-1 text-xs w-full">
           {/* Dashboard Home Link */}
           <a
             href={`/${userType.toLowerCase()}`}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${
+            className={`flex items-center gap-1.5 px-2 py-1.5 xl:px-2.5 rounded-lg font-semibold transition-colors whitespace-nowrap ${
               activePath === `/${userType.toLowerCase()}`
                 ? 'bg-blue-50 text-blue-700 font-bold'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -111,71 +87,29 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
             <span>{t('nav.dashboard')}</span>
           </a>
 
-          {/* Admin Navigation */}
-          {userType === 'ADMIN' && (
-            <>
-              {primaryAdminNav.map((item) => {
-                const Icon = item.icon;
-                const isActive = activePath === item.href || activePath.startsWith(item.href);
+          {/* Admin Navigation: All 12 Primary Modules Directly Accessible */}
+          {userType === 'ADMIN' &&
+            adminNav.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                activePath === item.href ||
+                (item.href !== '/admin' && activePath.startsWith(item.href));
 
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
-                      isActive
-                        ? 'bg-blue-50 text-blue-700 font-bold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                    <span>{item.label}</span>
-                  </a>
-                );
-              })}
-
-              {/* "More" Dropdown for Lower-Frequency Modules */}
-              <div className="relative" ref={moreRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsMoreOpen(!isMoreOpen)}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                    isMoreActive || isMoreOpen
-                      ? 'bg-slate-100 text-slate-900 font-semibold'
+              return (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 px-1.5 sm:px-2 xl:px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-bold'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
-                  <span>{t('nav.more')}</span>
-                  <ChevronDown className={`w-3 h-3 transition-transform ${isMoreOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isMoreOpen && (
-                  <div className="absolute start-0 mt-1 w-52 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1">
-                    {moreAdminNav.map((item) => {
-                      const Icon = item.icon;
-                      const isActive = activePath === item.href || activePath.startsWith(item.href);
-
-                      return (
-                        <a
-                          key={item.href}
-                          href={item.href}
-                          onClick={() => setIsMoreOpen(false)}
-                          className={`flex items-center gap-2.5 px-3.5 py-2 text-xs transition-colors ${
-                            isActive
-                              ? 'bg-blue-50 text-blue-700 font-bold'
-                              : 'text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                          <span>{item.label}</span>
-                        </a>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </a>
+              );
+            })}
 
           {/* Teacher Navigation */}
           {userType === 'TEACHER' &&
@@ -186,8 +120,10 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
                 <a
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                    isActive ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
@@ -205,8 +141,10 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
                 <a
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                    isActive ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
@@ -224,8 +162,10 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
                 <a
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                    isActive ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
@@ -243,8 +183,10 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
                 <a
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                    isActive ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 font-bold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
