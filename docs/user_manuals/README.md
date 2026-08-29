@@ -13,3 +13,4 @@ This directory contains client-facing user guides designed as standalone, printa
 - `03_teacher_portal/` - Teacher Classroom, Attendance & Grading Manuals
 - `04_student_portal/` - Student Portal Guide
 - `05_parent_portal/` - Parent Multi-child Portal Guide
+

@@ -66,3 +66,4 @@ All tenant-scoped tables enforce composite uniqueness with `tenant_id` to guaran
 
 ### 3.5. General Ledger, HR, Exams, Library, Store & Auditing
 - All respective tables (`JournalEntry`, `ChartOfAccount`, `Employee`, `PayrollBatch`, `EmployeePayslip`, `ExamSchedule`, `StudentResultCard`, `Book`, `InventoryItem`, `StoreSaleInvoice`, `AuditLog`, `PublishingWorkflow`) include non-nullable, indexed `tenant_id` (UUID).
+

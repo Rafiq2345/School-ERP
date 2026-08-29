@@ -34,3 +34,4 @@ $$\text{Develop} \longrightarrow \text{Test} \longrightarrow \text{Finalize UI} 
 - [ ] **13. Client User Manual Updated**: Created/updated in `/docs/user_manuals/<module>/USER_MANUAL.md` as a **separate, printable client deliverable** with step-by-step instructions and actual finalized screenshots. *(The User Manual is NOT embedded as an in-app module/page in the ERP).*
 - [ ] **14. Screenshots Updated**: Actual, finalized UI screenshots placed in `/docs/user_manuals/<module>/screenshots/`.
 - [ ] **15. Change Log & Git Working Tree Reviewed**: `/docs/modules/<module>/CHANGELOG.md` updated, clean git tree with zero secrets or unnecessary files.
+

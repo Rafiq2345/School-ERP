@@ -119,3 +119,4 @@ If a client school offboards or requests a full compliance data backup:
    - The export process packages only user operational data. **Zero source code, database triggers, ORM models, or proprietary migration tools are included.**
 3. **Audit & Cryptographic Verification**:
    - The export bundle is encrypted with an ephemeral key provided to the school authorized representative, and the transaction is immutably logged in `AuditLog`.
+

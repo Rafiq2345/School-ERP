@@ -111,3 +111,4 @@ export async function authorizeAction(
 Every critical operational, financial, publishing, and administrative change is logged to `AuditLog`:
 - Fields: `tenant_id`, `user_id`, `user_role`, `ip_address`, `timestamp`, `module`, `entity_type`, `entity_id`, `action`, `old_values` (JSON), `new_values` (JSON), `change_summary`, `request_id`.
 - Immutable log records protected from client-side modification.
+

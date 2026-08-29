@@ -100,3 +100,4 @@ graph TD
    - All critical business logic, financial rules, and permission checks are enforced strictly on the backend. Frontend UI adaptation is strictly an ergonomics layer.
 5. **Private Developer Tools Exclusion**:
    - The private Data Migration Tool is completely excluded from this repository, web routes, APIs, UI, and documentation.
+

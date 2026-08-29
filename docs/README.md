@@ -6,14 +6,17 @@ Documentation is strictly organized into two separate categories:
 
 ---
 
-## Category A: Internal Technical Documentation
-*(For Developers & Product Owner — Kept in version control, never exposed through the ERP user interface).*
+## Category A: Internal & Commercial Technical Documentation
+*(For Developers, Platform Owners & Authorized Source Handover — Kept in version control, never exposed through the ERP user interface).*
 
 ```
 /docs
   ├── architecture/            # Enterprise Architecture, Database Design, Security & Standards
   │   ├── SYSTEM_ARCHITECTURE.md
+  │   ├── COMMERCIAL_DELIVERY_MODES.md
   │   ├── TENANT_ISOLATION_AND_PLATFORM_CONTROL.md
+  │   ├── HOSTED_DEPLOYMENT_GUIDE.md
+  │   ├── SOURCE_CODE_HANDOVER_GUIDE.md
   │   ├── DATABASE_SCHEMA.md
   │   ├── SECURITY_AND_PERMISSIONS.md
   │   ├── PUBLISHING_ENGINE.md
