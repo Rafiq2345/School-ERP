@@ -7,7 +7,7 @@
 ---
 
 ## 1. Introduction
-Welcome to **School-ERP**, the comprehensive enterprise management system for your institution. This manual provides step-by-step instructions for getting started, logging in, selecting your portal, switching languages, and navigating the top-bar interface.
+Welcome to **School-ERP**, the comprehensive enterprise management system for your institution. This manual provides step-by-step instructions for getting started, logging in with automated role routing, switching languages, and navigating the top-bar interface.
 
 ---
 
@@ -17,22 +17,21 @@ Welcome to **School-ERP**, the comprehensive enterprise management system for yo
 Open your web browser (Google Chrome, Microsoft Edge, Mozilla Firefox, or Safari) and visit your school's designated ERP address (e.g. `https://school.yourdomain.com/login`).
 
 ```text
-[SCREENSHOT PLACEHOLDER: 01_login_screen.png - Login Page with School Code, Username, and Portal Selector]
+[SCREENSHOT PLACEHOLDER: 01_login_screen.png - Clean Login Screen with Username, Password, and Language Switcher]
 ```
 
-### Step 2: Select Your Target Portal
-Choose your designated role from the portal selector tabs:
-- **Admin**: For School Principals, Administrators, and Accounts Managers.
-- **Staff**: For general administrative and operational staff.
-- **Teacher**: For instructional faculty.
-- **Student**: For enrolled students.
-- **Parent**: For parents and guardians.
+### Step 2: Enter Your Credentials
+1. **Username / Email**: Enter your assigned username or registered email address.
+2. **Password**: Enter your secure password.
+3. Click **Sign In**.
 
-### Step 3: Enter Your Credentials
-1. **School Code**: Enter your institution's unique identifier (e.g. `SCH-001`).
-2. **Username / Email**: Enter your assigned username or registered email.
-3. **Password**: Enter your secure password.
-4. Click **Sign In**.
+### Step 3: Automated Role Routing (Zero Manual Role Selection)
+You do not need to manually select a portal or school code. Upon verifying your credentials, the system automatically determines your authorized role and redirects you directly to your portal:
+- **School Administrators** ➔ Redirected to `/admin`
+- **Teachers & Faculty** ➔ Redirected to `/teacher`
+- **Administrative Staff** ➔ Redirected to `/staff`
+- **Students** ➔ Redirected to `/student`
+- **Parents & Guardians** ➔ Redirected to `/parent`
 
 > [!NOTE]
 > For security, accounts are locked for 15 minutes after 5 consecutive failed login attempts.
