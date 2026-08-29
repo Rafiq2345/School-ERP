@@ -1,0 +1,73 @@
+{
+  "app": {
+    "title": "School-ERP",
+    "tagline": "Enterprise School Management Platform",
+    "search_placeholder": "Search students, staff, classes, vouchers...",
+    "notifications": "Notifications",
+    "no_notifications": "No new notifications",
+    "language": "Language",
+    "profile": "Profile",
+    "settings": "Settings",
+    "logout": "Logout",
+    "session": "Active Session",
+    "portal": "Portal"
+  },
+  "auth": {
+    "login_title": "Sign In to Your Portal",
+    "login_subtitle": "Access your school operational dashboard",
+    "username_label": "Username or Email",
+    "password_label": "Password",
+    "sign_in_button": "Sign In",
+    "forgot_password": "Forgot your password?",
+    "tenant_label": "School Identifier / Code",
+    "invalid_credentials": "Invalid username or password.",
+    "account_locked": "Account is locked due to too many failed attempts. Try again in 15 minutes."
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "admissions": "Admissions",
+    "students": "Students",
+    "academics": "Academics",
+    "attendance": "Attendance",
+    "billing": "Fees & Billing",
+    "exams": "Examinations",
+    "hr": "HR & Payroll",
+    "accounts": "Accounts & Ledger",
+    "library": "Library",
+    "inventory": "Inventory & Store",
+    "publishing": "Publishing Hub",
+    "audit": "Audit Trail",
+    "settings": "School Settings"
+  },
+  "portals": {
+    "admin": "School Admin Portal",
+    "staff": "Staff & Employee Portal",
+    "teacher": "Teacher Portal",
+    "student": "Student Portal",
+    "parent": "Parent Portal"
+  },
+  "common": {
+    "status": "Status",
+    "action": "Action",
+    "view": "View",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "approve": "Approve",
+    "publish": "Publish",
+    "unpublish": "Unpublish",
+    "reverse": "Reverse",
+    "export": "Export",
+    "print": "Print",
+    "save": "Save Changes",
+    "cancel": "Cancel",
+    "draft": "Draft",
+    "under_review": "Under Review",
+    "approved": "Approved",
+    "published": "Published",
+    "archived": "Archived",
+    "unpaid": "Unpaid",
+    "paid": "Paid",
+    "settled": "Settled (Scholarship)"
+  }
+}
