@@ -1,132 +1,102 @@
 # School-ERP: System Architecture & Technical Foundation
 
-## 1. System Scope & Guiding Principles
-- **Deployment & Topology**: Single school / single campus architecture.
-- **Modularity**: Domain-Driven Modular Monolith with clear bounded contexts, independent domain services, strict encapsulation, and clean API contracts.
-- **Bi-lingual & RTL Native**: English (LTR) and Urdu (RTL) localization built into the core design from day one.
-- **Multi-Portal Experience**: Specialized, responsive web portals for:
-  1. **Admin Portal**: Complete school operations, settings, finance, approvals, publishing, and audit logs.
-  2. **Employee / Staff Portal**: HR profile, attendance, leave management, payroll/payslips.
-  3. **Teacher Portal**: Class management, subject attendance, timetable, exam marks entry, student progress.
-  4. **Student Portal**: Timetable, attendance records, published fee vouchers, exam results, notice board.
-  5. **Parent Portal**: Multi-child switcher, fee voucher downloads, online/bank payment history, attendance tracking, report cards, school circulars.
-- **Financial & Data Integrity**: ACID transactions, ledger-backed double-entry accounting, immutable receipts, safe two-phase bulk operations.
-- **Data Privacy**: Complete exclusion of private migration tools from the application code, UI, API, or repo.
+## 1. System Scope & Commercial Product Model
+
+### 1.1. Commercial Software Architecture
+**School-ERP** is engineered as a commercial product to be licensed and sold to multiple independent school organizations.
+- **Independent School Tenants**: Each licensed school operates with 100% data isolation, independent operational configurations, separate academic calendars, distinct user bases, and segregated financial ledgers.
+- **Single-Campus Simplicity per School**: A school installation/tenant represents a single school organization. The ERP does **not** introduce campus-branch hierarchies or multi-branch complexity inside a school's operational workflows.
+- **Flexible Commercial Deployment Topologies**:
+  1. **Multi-Tenant SaaS Topology**: Multiple school clients hosted on a scalable, shared cloud cluster with strict software-level and database-level tenant isolation (`tenant_id` context propagation, PostgreSQL Row-Level Security / schema routing).
+  2. **Dedicated Private Cloud / On-Premises Deployment**: High-tier or enterprise clients can receive a dedicated instance running the identical codebase with dedicated database and storage volumes.
+  3. **Zero Codebase Divergence**: The core ERP architecture supports both SaaS and dedicated topologies using the same codebase, controlled via tenant context configuration.
+
+### 1.2. Product Owner vs. School Tenant Separation
+The platform strictly separates the **Platform Product Owner** from the **School Super Admin**:
+- **Platform Owner (Us)**: Manages client subscriptions, licenses, tenant provisioning, system health, product versions, module feature flags, and global licensing controls via a protected, isolated platform plane.
+- **School Super Admin (Client)**: Has administrative control *only* within their own school tenant (managing their teachers, students, fees, classes, payroll, and settings). A School Super Admin has **zero access** to other schools' data or platform-owner administration.
+
+```mermaid
+graph TD
+    subgraph PlatformControlPlane["Platform Owner Control Plane (Proprietary & Isolated)"]
+        PO["Platform Product Owner (Us)"] --> TenantMgmt["Tenant & License Manager"]
+        TenantMgmt --> LicenseEngine["Subscription, Feature Flags & License Engine"]
+    end
+
+    subgraph ClientTenants["Commercial Client School Instances"]
+        subgraph TenantA["School Client A (Licensed Tenant)"]
+            AdminA["School A Super Admin"]
+            UsersA["Teachers / Staff / Students / Parents"]
+            DB_A["Isolated Data & Files (School A)"]
+        end
+        
+        subgraph TenantB["School Client B (Licensed Tenant)"]
+            AdminB["School B Super Admin"]
+            UsersB["Teachers / Staff / Students / Parents"]
+            DB_B["Isolated Data & Files (School B)"]
+        end
+    end
+
+    LicenseEngine -.->|Enforces Active License & Features| TenantA
+    LicenseEngine -.->|Enforces Active License & Features| TenantB
+```
 
 ---
 
 ## 2. Production Technology Stack Recommendation
 
+### 2.1. Layered Architecture Overview
 ```mermaid
 graph TD
-    Client["Client Browsers (Admin / Teacher / Staff / Student / Parent Portals)"]
+    Client["Client Web Portals (Admin / Staff / Teacher / Student / Parent)"]
     
-    subgraph Frontend["Frontend Layer (Next.js 15+ App Router)"]
-        UI["Tailwind CSS v4 + Radix UI (Shadcn UI)"]
-        I18N["next-intl (English LTR / Urdu RTL)"]
-        State["TanStack Query + Zustand"]
+    subgraph EdgeAndSecurity["Edge & Security Layer"]
+        WAF["Security Headers, WAF, Rate Limiter, HTTPS/TLS 1.3"]
+        TenantResolver["Tenant Resolution Middleware (Subdomain / Header / JWT)"]
     end
     
-    subgraph Backend["Backend & Application Service Layer (TypeScript)"]
-        Auth["Authentication & Session Middleware"]
-        RBAC["Authorization & Permission Guard (10 Actions)"]
-        Val["Zod Schema Validation"]
+    subgraph ApplicationLayer["Application & Service Layer (Node.js / TypeScript)"]
+        AuthN["Multi-Portal AuthN + Argon2id + MFA + Session Manager"]
+        TenantContext["Tenant Context Injector (AsyncLocalStorage)"]
+        AuthZ["10-Action RBAC & PBAC Permission Guard"]
+        Validation["Zod Schema Validator & Sanitizer"]
         PublishEngine["Central Publishing Engine"]
         FinanceEngine["Financial Safety & Invariant Engine"]
-        AuditEngine["Universal Audit Interceptor"]
-        DomainServices["Domain Services (Admissions, Academics, Billing, HR, etc.)"]
+        AuditEngine["Universal Tenant-Aware Audit Interceptor"]
+        DomainServices["Domain Services (Billing, HR, Exams, Academics, etc.)"]
     end
     
-    subgraph Data["Data & Infrastructure Layer"]
-        Prisma["Prisma ORM (Type-Safe Schema & Migrations)"]
-        PostgreSQL["PostgreSQL Database (ACID, Decimal Precision, JSONB)"]
-        FileStore["Abstracted File Storage (/storage/uploads/)"]
-        Logger["Structured Logger (Pino/Winston)"]
+    subgraph DataLayer["Data & Storage Infrastructure"]
+        Prisma["Prisma ORM with Tenant Filtering Extensions"]
+        PostgreSQL["PostgreSQL 16+ (ACID, Decimal Precision, JSONB)"]
+        IsolatedStorage["Tenant-Segregated Storage (/storage/tenants/:tenant_id/)"]
+        Logger["Structured Safe Logger (Sensitive Data Masked)"]
     end
 
-    Client --> Frontend
-    Frontend --> Backend
-    Backend --> Data
+    Client --> EdgeAndSecurity
+    EdgeAndSecurity --> ApplicationLayer
+    ApplicationLayer --> DataLayer
 ```
 
-### 2.1. Frontend Architecture
-- **Framework**: Next.js 15+ (App Router) with TypeScript. Server-side rendering (SSR) for portal shells and fast first paint; React Server Components + Client Components for rich interactive forms.
-- **Styling & Theming**: Tailwind CSS v4 with dynamic CSS variables for themes and direction switching (`dir="ltr"` / `dir="rtl"`).
-- **Component Library**: Radix UI primitives / Shadcn UI for accessible, mobile-first responsive components (dialogs, dropdowns, tables, sheets, tabs).
-- **Localization**: `next-intl` providing server & client translation hooks, date/currency formatting, and Noto Nastaliq Urdu font integration.
-- **Client State & Caching**: TanStack Query (React Query) for optimistic UI updates, background caching, and automatic invalidation; Zustand for global client state (session context, active portal switch, selected academic session).
+### 2.2. Technology Selections
+- **Frontend Framework**: Next.js 15+ (App Router) with TypeScript.
+- **Styling & UI Components**: Tailwind CSS v4, Radix UI (Shadcn UI), mobile-responsive portal layouts.
+- **Localization**: `next-intl` bilingual setup (English LTR / Urdu RTL) with Noto Nastaliq Urdu typography.
+- **Backend & API**: TypeScript on Node.js v24 LTS; Modular Clean Service Layer; Server Actions & API Route Handlers.
+- **Database & ORM**: PostgreSQL 16+ with Prisma ORM. Strict Decimal(`DECIMAL(12,2)`) precision for financial records.
+- **Tenant Context Propagation**: `AsyncLocalStorage` in Node.js, ensuring every query, log, cache key, and storage path is automatically bound to the active `tenant_id`.
 
-### 2.2. Backend Architecture
-- **Pattern**: Modular Layered Architecture (Clean Architecture):
-  - `Presentation Layer`: API Route Handlers / Server Actions validating inputs and checking permissions.
-  - `Application Layer`: Orchestration services, DTOs, and transaction coordinators.
-  - `Domain Layer`: Pure business logic, financial invariant enforcers, GPA calculators, fee discount calculators, publishing state machines.
-  - `Infrastructure Layer`: Prisma ORM repositories, database adapters, local/cloud storage providers, notification dispatchers, logger.
-- **Language & Runtime**: TypeScript on Node.js v24 LTS.
+---
 
-### 2.3. Database & ORM
-- **Database Engine**: PostgreSQL 16+.
-  - *Why PostgreSQL?* Robust ACID transactions, row-level locking (`SELECT FOR UPDATE`), exact precision `NUMERIC(12,2)` for financial calculations, JSONB for historical snapshots and audit logs, foreign keys with referential constraints.
-- **ORM**: Prisma ORM.
-  - *Why Prisma?* Strict compile-time TypeScript type safety across queries, declarative migrations (`prisma migrate`), expressive transactions (`prisma.$transaction`), and seamless relation loading.
-
-### 2.4. Authentication & Session Management
-- **Strategy**: Multi-Portal HTTP-Only Secure Cookie Session management with signed tokens.
-- **Password Security**: Argon2id hashing with per-user salt.
-- **Account Protection**: Rate limiting, brute-force lockout after 5 consecutive failed attempts, CSRF protection, secure password reset tokens with 15-minute expiry.
-- **Role Multi-tenancy**: Single login screen or portal-specific login paths routing users directly to their permitted portal based on active role.
-
-### 2.5. Authorization (RBAC & PBAC)
-- **10 Core Actions**:
-  1. `View`: Read access to list and detail views.
-  2. `Create`: Initiate new records.
-  3. `Edit`: Modify existing mutable records.
-  4. `Delete`: Safely remove unlinked, eligible draft records.
-  5. `Approve`: Authorization to move items from Review to Approved status.
-  6. `Print`: Access to formal print layouts (Challans, Result Cards, Payslips).
-  7. `Export`: Access to CSV/Excel/PDF bulk exports.
-  8. `Publish`: Make approved records visible to targeted portals (Student, Parent, Employee).
-  9. `Unpublish`: Withdraw records from portal visibility back to draft/review.
-  10. `Reverse`: Initiate financial reversals or adjustments with mandatory reason and ledger impact.
-- **Enforcement**: Mandatory backend middleware guards (`checkPermission(module, action)`) wrapping every API route and server mutation.
-
-### 2.6. Validation & Error Handling
-- **Validation**: Schema-first validation with Zod. Input schemas shared or reused between frontend forms and backend API handlers.
-- **Error Handling**: Standardized RFC 7807 compliant error format:
-  ```json
-  {
-    "success": false,
-    "error": {
-      "code": "FINANCIAL_INVARIANT_VIOLATION",
-      "message": "Paid vouchers cannot be deleted. Use the Reversal workflow instead.",
-      "details": { "voucherId": "VCH-2026-0042", "paidAmount": 4500 }
-    }
-  }
-  ```
-
-### 2.7. File & Document Storage
-- Abstracted `StorageService` interface.
-- Local disk storage initially organized under:
-  - `/storage/uploads/avatars/`
-  - `/storage/uploads/student_documents/`
-  - `/storage/uploads/staff_documents/`
-  - `/storage/uploads/fee_receipts/`
-  - `/storage/uploads/exam_attachments/`
-  - `/storage/exports/`
-- Strict file validation: MIME-type verification, magic number inspection, filename sanitization, max upload size limits (e.g. 5MB for docs, 2MB for photos).
-
-### 2.8. Logging & Observability
-- Structured JSON logging using Pino / Winston with log levels: `ERROR`, `WARN`, `INFO`, `HTTP`, `DEBUG`.
-- Correlation ID (`x-request-id`) propagated through every request lifecycle and logged in all database queries and audit events.
-- Daily rotating log files saved to `/storage/logs/`.
-
-### 2.9. Testing Strategy
-- **Unit Testing**: Vitest for pure business logic (fee calculation, discount policy hierarchy, GPA and grading formulas, timetable conflict detection, permission resolution).
-- **Integration Testing**: Supertest & database test fixtures for API routes, transactional integrity, publishing state transitions, and financial reversal invariants.
-- **E2E Testing**: Playwright for cross-portal workflows, responsive UI checks on mobile/tablet/desktop, and Urdu RTL layout verification.
-
-### 2.10. Backup & Disaster Recovery Strategy
-- Daily automated database dump (`pg_dump`) executed via scheduled background task, compressed and timestamped.
-- Daily file storage archive backup.
-- Point-in-time recovery (PITR) enabled via WAL archiving in production.
-- Automated health check endpoint (`/api/health`) verifying database connectivity, storage disk space, and memory usage.
+## 3. Intellectual Property (IP) Protection & Security Principles
+1. **Proprietary Source Code Protection**:
+   - The ERP repository is private. Clients receive runtime application access under commercial license, never raw source code repository rights.
+   - Internal developer documentation, system architectural notes, and internal issue trackers are **never** exposed in the client ERP interface.
+2. **Zero Internal Secret Exposure**:
+   - Secrets, database credentials, encryption keys, and environment variables are strictly managed server-side and never leaked in client bundles or public APIs.
+3. **No Hidden Backdoors**:
+   - Platform owner administrative operations are conducted through cryptographically secured, audited management APIs without backdoor user accounts or hardcoded bypasses.
+4. **Server-Side Invariant Enforcement**:
+   - All critical business logic, financial rules, and permission checks are enforced strictly on the backend. Frontend UI adaptation is strictly an ergonomics layer.
+5. **Private Developer Tools Exclusion**:
+   - The private Data Migration Tool is completely excluded from this repository, web routes, APIs, UI, and documentation.
