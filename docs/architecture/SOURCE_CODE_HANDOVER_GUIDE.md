@@ -88,3 +88,4 @@ npm run start
 2. **File Storage**: Ensure the `/storage` directory has appropriate OS-level write permissions for the application process and is included in regular backup routines.
 3. **MFA Enablement**: Recommend enabling Time-based One-Time Password (TOTP) MFA for the initial School Super Admin account.
 4. **SSL / TLS**: Always enforce HTTPS in production using an SSL certificate.
+

@@ -21,3 +21,4 @@ This guide provides the internal DevOps and platform engineering procedures for 
 2. **Database Migrations**: Executed in zero-downtime rolling fashion using Prisma migrate (`npx prisma migrate deploy`).
 3. **Health Checks**: Automated liveness and readiness probes (`/api/health`) verifying database response time, Redis heartbeat, and disk capacity.
 4. **Monitoring & Telemetry**: Pino structured JSON logs forwarded to centralized observability (Grafana Loki / Datadog) with PII sanitization enabled.
+

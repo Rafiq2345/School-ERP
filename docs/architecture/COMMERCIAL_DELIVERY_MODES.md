@@ -74,3 +74,4 @@ Selected clients may purchase or license the source code under specific commerci
 | **Source-Code Handover Guide** | Licensed Enterprise Clients & Client Technical Teams | [`SOURCE_CODE_HANDOVER_GUIDE.md`](file:///d:/School%20Management/docs/architecture/SOURCE_CODE_HANDOVER_GUIDE.md) | Client-Deliverable |
 | **Client User Manuals** | School End-Users (Teachers, Staff, Parents, Students, Admins) | `/docs/user_manuals/` | Standalone Printable Deliverable |
 | **Internal Feature Technical Specs** | Core Developers | `/docs/modules/` | Internal Repository |
+
