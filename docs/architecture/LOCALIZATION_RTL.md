@@ -47,3 +47,4 @@ Translation dictionaries are organized modularly under `/locales/`:
 3. **Number & Currency Formatting**:
    - Currency display: `Rs. 4,500.00` or `روپے 4,500.00` with standard international numerals (`0-9`) or Eastern Arabic numerals based on school preference settings.
    - Date display: Dual calendar formatting supporting Gregorian dates with optional Hijri equivalent.
+

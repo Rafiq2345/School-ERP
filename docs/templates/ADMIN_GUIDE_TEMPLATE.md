@@ -14,3 +14,4 @@ Guidelines for batch operations, dry-run previews, zero-balance settlements, or 
 
 ## 5. Troubleshooting & Audit Trail Inspection
 How administrators review audit logs, handle error states, or execute authorized reversals.
+

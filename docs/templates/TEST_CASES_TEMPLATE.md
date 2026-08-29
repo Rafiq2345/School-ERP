@@ -19,3 +19,4 @@ Summary of test scope, test environment requirements, and tenant-scoped mock dat
 - [ ] Financial calculation & rounding validation.
 - [ ] Audit log entry verification upon record changes.
 - [ ] Finalized screenshots captured and placed in `/docs/user_manuals/<module>/screenshots/`.
+

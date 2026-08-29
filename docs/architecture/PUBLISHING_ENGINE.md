@@ -65,3 +65,4 @@ WHERE entity.tenant_id = :current_tenant_id
   AND entity.target_audience @> ARRAY['STUDENT']::varchar[]
 ```
 This guarantees zero accidental data leakage from draft or under-review modules.
+

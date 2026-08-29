@@ -39,3 +39,4 @@ Specific safety rules, transaction invariants, approval steps, or settlement wor
 
 ## 7. Localization & RTL Considerations
 Urdu/English terminology mappings and layout notes.
+

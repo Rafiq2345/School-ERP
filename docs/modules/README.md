@@ -20,3 +20,4 @@ This directory contains internal technical specifications and change logs for ea
 11. `11_library` - Book Inventory, Accession Numbers, Issue/Return Tracking, Fines
 12. `12_inventory_store` - Requisitions, Purchase Orders, Goods Receipt, POS/Store Sales
 13. `13_communication_notices` - Circulars, Notices, Message Templates, Notification Logs
+

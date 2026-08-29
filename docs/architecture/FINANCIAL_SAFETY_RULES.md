@@ -62,3 +62,4 @@ When an administrator requests bulk voucher deletion (e.g. deleting accidentally
 
 ### 2.6. Bank Reconciliation Locking
 - Once a payment receipt is matched and reconciled against a bank statement in `BankReconciliation`, it cannot be reversed until the reconciliation period is explicitly unlocked by an authorized Finance Manager.
+
