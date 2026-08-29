@@ -1,0 +1,343 @@
+// Prisma Schema for School-ERP (Multi-Tenant Technical Foundation)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// 1. TENANT & SCHOOL PROFILE
+// ---------------------------------------------------------
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  status      String   @default("ACTIVE") // ACTIVE, TRIAL, SUSPENDED, DEACTIVATED
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  profile           SchoolProfile?
+  users             User[]
+  roles             Role[]
+  userRoles         UserRole[]
+  rolePermissions   RolePermission[]
+  sessions          UserSession[]
+  resetTokens       PasswordResetToken[]
+  auditLogs         AuditLog[]
+  publishing        PublishingWorkflow[]
+  publishingBatches PublishingBatch[]
+  approvalRequests  ApprovalRequest[]
+  approvalSteps     ApprovalStep[]
+  settings          TenantSetting[]
+  featureToggles    ModuleFeatureToggle[]
+
+  @@map("tenants")
+}
+
+model SchoolProfile {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique @map("tenant_id")
+  nameEn         String   @map("name_en")
+  nameUr         String   @map("name_ur")
+  code           String
+  registrationNo String?  @map("registration_no")
+  logoUrl        String?  @map("logo_url")
+  contactEmail   String?  @map("contact_email")
+  contactPhone   String?  @map("contact_phone")
+  addressEn      String?  @map("address_en")
+  addressUr      String?  @map("address_ur")
+  currencySymbol String   @default("Rs.") @map("currency_symbol")
+  currencyCode   String   @default("PKR") @map("currency_code")
+  timezone       String   @default("Asia/Karachi")
+  dateFormat     String   @default("DD/MM/YYYY") @map("date_format")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("school_profiles")
+}
+
+// ---------------------------------------------------------
+// 2. USERS, ROLES & PERMISSIONS (10-ACTION RBAC)
+// ---------------------------------------------------------
+
+model User {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  username            String
+  email               String?
+  phone               String?
+  passwordHash        String    @map("password_hash")
+  userType            String    @map("user_type") // ADMIN, EMPLOYEE, TEACHER, STUDENT, PARENT
+  status              String    @default("ACTIVE") // ACTIVE, INACTIVE, LOCKED
+  preferredLocale     String    @default("en") @map("preferred_locale") // en, ur
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockoutUntil        DateTime? @map("lockout_until")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles   UserRole[]
+  sessions    UserSession[]
+  resetTokens PasswordResetToken[]
+
+  @@unique([tenantId, username])
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, code])
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  module      String // CONFIG, SECURITY, ADMISSIONS, ACADEMICS, ATTENDANCE, BILLING, EXAMS, HR_PAYROLL, ACCOUNTS, LIBRARY, INVENTORY, COMMUNICATION, PUBLISHING, AUDIT
+  action      String // VIEW, CREATE, EDIT, DELETE, APPROVE, PRINT, EXPORT, PUBLISH, UNPUBLISH, REVERSE
+  code        String @unique // e.g. BILLING:REVERSE, EXAMS:PUBLISH
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ---------------------------------------------------------
+// 3. SESSIONS & SECURITY TOKENS
+// ---------------------------------------------------------
+
+model UserSession {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("user_sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------
+// 4. UNIVERSAL AUDIT LOG
+// ---------------------------------------------------------
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  userId        String?  @map("user_id")
+  userRole      String?  @map("user_role")
+  ipAddress     String?  @map("ip_address")
+  userAgent     String?  @map("user_agent")
+  module        String
+  entityType    String   @map("entity_type")
+  entityId      String   @map("entity_id")
+  action        String // CREATE, UPDATE, DELETE, APPROVE, PRINT, EXPORT, PUBLISH, UNPUBLISH, REVERSE
+  oldValues     String?  @map("old_values") // JSON string
+  newValues     String?  @map("new_values") // JSON string
+  changeSummary String?  @map("change_summary")
+  requestId     String?  @map("request_id")
+  timestamp     DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, module, timestamp])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------
+// 5. CENTRAL PUBLISHING ENGINE FOUNDATION
+// ---------------------------------------------------------
+
+model PublishingWorkflow {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  entityType      String    @map("entity_type") // FEE_VOUCHER, EXAM_RESULT, RESULT_CARD, TIMETABLE, NOTICE, PAYSLIP, DOCUMENT
+  entityId        String    @map("entity_id")
+  currentStatus   String    @default("DRAFT") @map("current_status") // DRAFT, UNDER_REVIEW, APPROVED, PUBLISHED, UNPUBLISHED, ARCHIVED
+  targetAudience  String    @default("ALL") @map("target_audience") // ALL, ADMIN, TEACHER, EMPLOYEE, STUDENT, PARENT
+  version         Int       @default(1)
+  createdByUserId String    @map("created_by_user_id")
+  reviewedByUserId String?  @map("reviewed_by_user_id")
+  approvedByUserId String?  @map("approved_by_user_id")
+  publishedByUserId String? @map("published_by_user_id")
+  publishedAt     DateTime? @map("published_at")
+  archivedAt      DateTime? @map("archived_at")
+  reasonOrNotes   String?   @map("reason_or_notes")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, entityType, entityId])
+  @@index([tenantId, currentStatus])
+  @@map("publishing_workflows")
+}
+
+model PublishingBatch {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  batchNo            String   @unique @map("batch_no")
+  entityType         String   @map("entity_type")
+  actionType         String   @map("action_type") // BULK_PUBLISH, BULK_UNPUBLISH, BULK_ARCHIVE
+  totalCount         Int      @map("total_count")
+  successCount       Int      @default(0) @map("success_count")
+  failedCount        Int      @default(0) @map("failed_count")
+  initiatedByUserId  String   @map("initiated_by_user_id")
+  summaryJson        String?  @map("summary_json") // JSON string
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("publishing_batches")
+}
+
+// ---------------------------------------------------------
+// 6. APPROVAL ENGINE FOUNDATION
+// ---------------------------------------------------------
+
+model ApprovalRequest {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  module          String
+  entityType      String   @map("entity_type")
+  entityId        String   @map("entity_id")
+  title           String
+  status          String   @default("PENDING") @map("status") // PENDING, APPROVED, REJECTED, CANCELLED
+  requesterUserId String   @map("requester_user_id")
+  approverUserId  String?  @map("approver_user_id")
+  approvedAt      DateTime? @map("approved_at")
+  remarks         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  steps  ApprovalStep[]
+
+  @@index([tenantId, status])
+  @@map("approval_requests")
+}
+
+model ApprovalStep {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  requestId       String    @map("request_id")
+  stepNumber      Int       @map("step_number")
+  approverRoleId  String    @map("approver_role_id")
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  decisionByUserId String?  @map("decision_by_user_id")
+  decisionAt      DateTime? @map("decision_at")
+  comments        String?
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  request ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("approval_steps")
+}
+
+// ---------------------------------------------------------
+// 7. SETTINGS & FEATURE CONFIGURATION
+// ---------------------------------------------------------
+
+model TenantSetting {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  settingKey   String   @map("setting_key")
+  settingValue String   @map("setting_value")
+  category     String   @default("GENERAL") // GENERAL, ACADEMIC, FINANCE, SECURITY
+  isEncrypted  Boolean  @default(false) @map("is_encrypted")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, settingKey])
+  @@map("tenant_settings")
+}
+
+model ModuleFeatureToggle {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  moduleCode      String   @map("module_code")
+  isEnabled       Boolean  @default(true) @map("is_enabled")
+  configOverrides String?  @map("config_overrides") // JSON string
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, moduleCode])
+  @@map("module_feature_toggles")
+}
