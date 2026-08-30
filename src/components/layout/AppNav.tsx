@@ -14,7 +14,6 @@ import {
   Library,
   Package,
   Send,
-  BarChart3,
 } from 'lucide-react';
 import { SupportedLocale, UserType } from '@/lib/types';
 import { getTranslation } from '@/lib/i18n/translations';
@@ -28,7 +27,8 @@ interface AppNavProps {
 export function AppNav({ activePath, userType, locale }: AppNavProps) {
   const t = (key: string) => getTranslation(locale, key);
 
-  // Complete Primary Operational Modules for School Admin (All directly visible, NO "More" dropdown, NO standalone Audit Trail)
+  // Complete Primary Operational Modules for School Admin
+  // (All 11 modules directly visible in a single row, NO global Reports item, NO global Audit item)
   const adminNav = [
     { label: t('nav.admissions'), href: '/admin/admissions', icon: UserPlus },
     { label: t('nav.students'), href: '/admin/students', icon: GraduationCap },
@@ -41,7 +41,6 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
     { label: t('nav.library'), href: '/admin/library', icon: Library },
     { label: t('nav.inventory'), href: '/admin/inventory', icon: Package },
     { label: t('nav.communication'), href: '/admin/communication', icon: Send },
-    { label: t('nav.reports'), href: '/admin/reports', icon: BarChart3 },
   ];
 
   const teacherNav = [
@@ -72,7 +71,7 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
   return (
     <nav className="bg-white border-b border-slate-200 px-3 sm:px-6 shadow-2xs relative z-30">
       <div className="max-w-7xl mx-auto flex items-center justify-between py-1">
-        {/* Single Clean Row of Operational Modules (Zero horizontal scrollbar) */}
+        {/* Single Clean Row of Operational Modules (Zero horizontal scrollbar, No wrapping) */}
         <div className="flex items-center flex-wrap gap-0.5 sm:gap-1 text-xs w-full">
           {/* Dashboard Home Link */}
           <a
@@ -87,7 +86,7 @@ export function AppNav({ activePath, userType, locale }: AppNavProps) {
             <span>{t('nav.dashboard')}</span>
           </a>
 
-          {/* Admin Navigation: All 12 Primary Modules Directly Accessible */}
+          {/* Admin Navigation: 11 Primary Modules Directly Accessible */}
           {userType === 'ADMIN' &&
             adminNav.map((item) => {
               const Icon = item.icon;

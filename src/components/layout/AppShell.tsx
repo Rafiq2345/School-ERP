@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { AuthenticatedUser, SupportedLocale, TenantContext } from '@/lib/types';
 import { AppHeader } from './AppHeader';
 import { AppNav } from './AppNav';
+import { ModuleSubNav } from './ModuleSubNav';
+import { getActiveModuleConfig } from '@/lib/navigation/module-nav';
 
 interface AppShellProps {
   user: AuthenticatedUser;
@@ -15,6 +17,9 @@ interface AppShellProps {
 export function AppShell({ user, tenant, activePath, children }: AppShellProps) {
   const [locale, setLocale] = useState<SupportedLocale>(user.preferredLocale || 'en');
   const dir = locale === 'ur' ? 'rtl' : 'ltr';
+
+  // Automatically resolve active module configuration for contextual sub-navigation
+  const activeModuleConfig = getActiveModuleConfig(activePath);
 
   return (
     <div dir={dir} className="min-h-screen bg-slate-50 flex flex-col antialiased">
@@ -30,8 +35,17 @@ export function AppShell({ user, tenant, activePath, children }: AppShellProps) 
         }}
       />
 
-      {/* Top Navigation Bar (No permanent left sidebar) */}
+      {/* Top Main Navigation Bar (Clean single row, NO horizontal scrollbar, NO global Reports item) */}
       <AppNav activePath={activePath} userType={user.userType} locale={locale} />
+
+      {/* Contextual Module Sub-Navigation (Rendered when inside a specific module) */}
+      {activeModuleConfig && (
+        <ModuleSubNav
+          config={activeModuleConfig}
+          activePath={activePath}
+          locale={locale}
+        />
+      )}
 
       {/* Main Responsive Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
