@@ -1,7 +1,4 @@
-'use client';
-
 import React from 'react';
-import { useParams } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthenticatedUser, TenantContext } from '@/lib/types';
 import { MODULE_NAV_CONFIGS } from '@/lib/navigation/module-nav';
@@ -24,9 +21,13 @@ const mockTenant: TenantContext = {
   schoolName: 'Greenwood International School',
 };
 
-export default function AdminModulePage() {
-  const params = useParams();
-  const moduleParam = typeof params?.module === 'string' ? params.module.toLowerCase() : '';
+interface PageProps {
+  params: Promise<{ module: string }>;
+}
+
+export default async function AdminModulePage({ params }: PageProps) {
+  const resolvedParams = await params;
+  const moduleParam = (resolvedParams?.module || '').toLowerCase();
   const config = MODULE_NAV_CONFIGS[moduleParam] || MODULE_NAV_CONFIGS['admissions'];
   const activePath = `/admin/${moduleParam}`;
 
