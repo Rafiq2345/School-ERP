@@ -41,11 +41,32 @@ Tenant-Scoped Operational Domains (Each record contains indexed tenant_id):
 
 All tenant-scoped tables enforce composite uniqueness with `tenant_id` to guarantee clean data segregation:
 
-### 3.1. School Configuration
-- **`SchoolSetting`**: `id` (UUID, PK), `tenant_id` (UUID, Unique), `school_name_en`, `school_name_ur`, `school_code`, `registration_no`, `logo_url`, `contact_email`, `contact_phone`, `address_en`, `address_ur`, `currency_symbol` ('Rs.'), `currency_code` ('PKR'), `timezone`, `date_format`, `is_active`.
-- **`AcademicSession`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `start_date`, `end_date`, `is_current` (Boolean), `status`, Unique(`tenant_id`, `name`).
-- **`AcademicClass`**: `id` (UUID, PK), `tenant_id` (UUID), `name_en`, `name_ur`, `numeric_grade`, `display_order`, Unique(`tenant_id`, `numeric_grade`, `name_en`).
-- **`ClassSection`**: `id` (UUID, PK), `tenant_id` (UUID), `class_id` (FK), `name_en`, `name_ur`, `capacity`, Unique(`tenant_id`, `class_id`, `name_en`).
+### 3.1. School Administration Configuration Master Data
+- **`SchoolProfile`**: `id` (UUID, PK), `tenant_id` (UUID, Unique), `name_en`, `name_ur`, `code`, `registration_no`, `logo_url`, `contact_email`, `contact_phone`, `address_en`, `address_ur`, `currency_symbol` ('Rs.'), `currency_code` ('PKR'), `timezone`, `date_format`, `is_active`.
+- **`AcademicSession`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `start_date`, `end_date`, `is_current` (Boolean), `status` (DRAFT, ACTIVE, CLOSED, LOCKED), `locked_at`, `closed_at`, Unique(`tenant_id`, `code`), Unique(`tenant_id`, `name`), PartialUnique(`tenant_id` WHERE `is_current` = true).
+- **`ClassCategory`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`SchoolClass`**: `id` (UUID, PK), `tenant_id` (UUID), `class_category_id` (FK, nullable), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`Section`**: `id` (UUID, PK), `tenant_id` (UUID), `class_id` (FK), `name`, `code`, `capacity`, `sort_order`, `is_active`, Unique(`tenant_id`, `class_id`, `code`).
+- **`Subject`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `short_name`, `subject_type` (THEORY, PRACTICAL, BOTH, ACTIVITY), `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`ClassSubject`**: `id` (UUID, PK), `tenant_id` (UUID), `academic_session_id` (FK), `class_id` (FK), `subject_id` (FK), `is_compulsory`, `sort_order`, `is_active`, Unique(`tenant_id`, `academic_session_id`, `class_id`, `subject_id`).
+- **`StudentCategory`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`House`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `color`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`AcademicCalendarEvent`**: `id` (UUID, PK), `tenant_id` (UUID), `academic_session_id` (FK, nullable), `title`, `event_type`, `is_holiday` (Boolean), `start_date`, `end_date`, `applicable_to`, `is_active`.
+- **`Department`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`Designation`**: `id` (UUID, PK), `tenant_id` (UUID), `department_id` (FK, nullable), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`EmployeeCategory`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`EmploymentType`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `salary_basis`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
+- **`LeaveType`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `is_paid`, `annual_limit`, `carry_forward_allowed`, `carry_forward_limit`, `requires_approval`, `is_active`, Unique(`tenant_id`, `code`).
+- **`Shift`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `start_time`, `end_time`, `grace_minutes`, `break_minutes`, `is_active`, Unique(`tenant_id`, `code`).
+- **`WorkingDayPolicy`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `applicable_days` (JSONB), `effective_from`, `effective_to`, `is_active`, Unique(`tenant_id`, `code`).
+- **`GradingScheme`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `calculation_mode` (PERCENTAGE, GRADE, GPA, GRADE_AND_GPA), `is_active`, Unique(`tenant_id`, `code`).
+- **`GradeBand`**: `id` (UUID, PK), `tenant_id` (UUID), `grading_scheme_id` (FK), `min_value` (Decimal), `max_value` (Decimal), `grade_label`, `gpa_value`, `remarks`, `sort_order`, `is_active`.
+- **`PassingRule`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `min_overall_percentage`, `max_failed_subjects`, `percentage_rule_enabled`, `failed_subject_rule_enabled`, `theory_practical_strategy`, `config_json` (JSONB), `is_active`, Unique(`tenant_id`, `code`).
+- **`SubjectPassingRule`**: `id` (UUID, PK), `tenant_id` (UUID), `passing_rule_id` (FK), `academic_session_id` (FK, nullable), `class_id` (FK), `subject_id` (FK), `total_pass_marks`, `theory_pass_marks`, `practical_pass_marks`, `pass_logic`, `is_active`, Unique(`tenant_id`, `passing_rule_id`, `class_id`, `subject_id`).
+- **`ExamRuleAssignment`**: `id` (UUID, PK), `tenant_id` (UUID), `academic_session_id` (FK), `class_id` (FK), `grading_scheme_id` (FK), `passing_rule_id` (FK), `is_active`, Unique(`tenant_id`, `academic_session_id`, `class_id`).
+- **`DocumentSequence`**: `id` (UUID, PK), `tenant_id` (UUID), `module_code`, `document_type`, `prefix`, `suffix`, `starting_number`, `current_number`, `padding_length`, `reset_policy`, `academic_session_id` (FK, nullable), `is_active`, Unique(`tenant_id`, `module_code`, `document_type`, `academic_session_id`).
+- **`CustomFieldDefinition`**: `id` (UUID, PK), `tenant_id` (UUID), `entity_type`, `field_key`, `label`, `field_type`, `is_required`, `sort_order`, `validation_rules` (JSONB), `is_active`, Unique(`tenant_id`, `entity_type`, `field_key`).
+- **`CustomFieldOption`**: `id` (UUID, PK), `tenant_id` (UUID), `custom_field_definition_id` (FK), `label`, `value`, `sort_order`, `is_active`, Unique(`tenant_id`, `custom_field_definition_id`, `value`).
 
 ### 3.2. Users & RBAC
 - **`User`**: `id` (UUID, PK), `tenant_id` (UUID), `username` (String), `email` (String, nullable), `phone` (String, nullable), `password_hash`, `mfa_secret` (nullable), `is_mfa_enabled` (Boolean, default false), `user_type` (ADMIN, EMPLOYEE, TEACHER, STUDENT, PARENT), `status` (ACTIVE, INACTIVE, LOCKED), `preferred_locale` ('en' | 'ur'), Unique(`tenant_id`, `username`), Unique(`tenant_id`, `email`).

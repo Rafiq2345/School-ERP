@@ -14,13 +14,14 @@ datasource db {
 // ---------------------------------------------------------
 
 model Tenant {
-  id          String   @id @default(uuid())
-  name        String
-  code        String   @unique
-  status      String   @default("ACTIVE") // ACTIVE, TRIAL, SUSPENDED, DEACTIVATED
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  status    String   @default("ACTIVE") // ACTIVE, TRIAL, SUSPENDED, DEACTIVATED
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
+  // Core Foundation Relations
   profile           SchoolProfile?
   users             User[]
   roles             Role[]
@@ -35,6 +36,32 @@ model Tenant {
   approvalSteps     ApprovalStep[]
   settings          TenantSetting[]
   featureToggles    ModuleFeatureToggle[]
+
+  // Administration Configuration Relations
+  academicSessions    AcademicSession[]
+  classCategories     ClassCategory[]
+  schoolClasses       SchoolClass[]
+  sections            Section[]
+  subjects            Subject[]
+  classSubjects       ClassSubject[]
+  studentCategories   StudentCategory[]
+  houses              House[]
+  calendarEvents      AcademicCalendarEvent[]
+  departments         Department[]
+  designations        Designation[]
+  employeeCategories  EmployeeCategory[]
+  employmentTypes     EmploymentType[]
+  leaveTypes          LeaveType[]
+  shifts              Shift[]
+  workingDayPolicies  WorkingDayPolicy[]
+  gradingSchemes      GradingScheme[]
+  gradeBands          GradeBand[]
+  passingRules        PassingRule[]
+  subjectPassingRules SubjectPassingRule[]
+  examRuleAssignments ExamRuleAssignment[]
+  documentSequences   DocumentSequence[]
+  customFieldDefs     CustomFieldDefinition[]
+  customFieldOptions  CustomFieldOption[]
 
   @@map("tenants")
 }
@@ -114,10 +141,10 @@ model Role {
 }
 
 model Permission {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   module      String // CONFIG, SECURITY, ADMISSIONS, ACADEMICS, ATTENDANCE, BILLING, EXAMS, HR_PAYROLL, ACCOUNTS, LIBRARY, INVENTORY, COMMUNICATION, PUBLISHING, AUDIT
   action      String // VIEW, CREATE, EDIT, DELETE, APPROVE, PRINT, EXPORT, PUBLISH, UNPUBLISH, REVERSE
-  code        String @unique // e.g. BILLING:REVERSE, EXAMS:PUBLISH
+  code        String  @unique // e.g. BILLING:REVERSE, EXAMS:PUBLISH
   description String?
 
   rolePermissions RolePermission[]
@@ -225,22 +252,22 @@ model AuditLog {
 // ---------------------------------------------------------
 
 model PublishingWorkflow {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
-  entityType      String    @map("entity_type") // FEE_VOUCHER, EXAM_RESULT, RESULT_CARD, TIMETABLE, NOTICE, PAYSLIP, DOCUMENT
-  entityId        String    @map("entity_id")
-  currentStatus   String    @default("DRAFT") @map("current_status") // DRAFT, UNDER_REVIEW, APPROVED, PUBLISHED, UNPUBLISHED, ARCHIVED
-  targetAudience  String    @default("ALL") @map("target_audience") // ALL, ADMIN, TEACHER, EMPLOYEE, STUDENT, PARENT
-  version         Int       @default(1)
-  createdByUserId String    @map("created_by_user_id")
-  reviewedByUserId String?  @map("reviewed_by_user_id")
-  approvedByUserId String?  @map("approved_by_user_id")
-  publishedByUserId String? @map("published_by_user_id")
-  publishedAt     DateTime? @map("published_at")
-  archivedAt      DateTime? @map("archived_at")
-  reasonOrNotes   String?   @map("reason_or_notes")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  entityType        String    @map("entity_type") // FEE_VOUCHER, EXAM_RESULT, RESULT_CARD, TIMETABLE, NOTICE, PAYSLIP, DOCUMENT
+  entityId          String    @map("entity_id")
+  currentStatus     String    @default("DRAFT") @map("current_status") // DRAFT, UNDER_REVIEW, APPROVED, PUBLISHED, UNPUBLISHED, ARCHIVED
+  targetAudience    String    @default("ALL") @map("target_audience") // ALL, ADMIN, TEACHER, EMPLOYEE, STUDENT, PARENT
+  version           Int       @default(1)
+  createdByUserId   String    @map("created_by_user_id")
+  reviewedByUserId  String?   @map("reviewed_by_user_id")
+  approvedByUserId  String?   @map("approved_by_user_id")
+  publishedByUserId String?   @map("published_by_user_id")
+  publishedAt       DateTime? @map("published_at")
+  archivedAt        DateTime? @map("archived_at")
+  reasonOrNotes     String?   @map("reason_or_notes")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -250,17 +277,17 @@ model PublishingWorkflow {
 }
 
 model PublishingBatch {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  batchNo            String   @unique @map("batch_no")
-  entityType         String   @map("entity_type")
-  actionType         String   @map("action_type") // BULK_PUBLISH, BULK_UNPUBLISH, BULK_ARCHIVE
-  totalCount         Int      @map("total_count")
-  successCount       Int      @default(0) @map("success_count")
-  failedCount        Int      @default(0) @map("failed_count")
-  initiatedByUserId  String   @map("initiated_by_user_id")
-  summaryJson        Json?    @map("summary_json")
-  createdAt          DateTime @default(now()) @map("created_at")
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  batchNo           String   @unique @map("batch_no")
+  entityType        String   @map("entity_type")
+  actionType        String   @map("action_type") // BULK_PUBLISH, BULK_UNPUBLISH, BULK_ARCHIVE
+  totalCount        Int      @map("total_count")
+  successCount      Int      @default(0) @map("success_count")
+  failedCount       Int      @default(0) @map("failed_count")
+  initiatedByUserId String   @map("initiated_by_user_id")
+  summaryJson       Json?    @map("summary_json")
+  createdAt         DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -272,19 +299,19 @@ model PublishingBatch {
 // ---------------------------------------------------------
 
 model ApprovalRequest {
-  id              String   @id @default(uuid())
-  tenantId        String   @map("tenant_id")
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
   module          String
-  entityType      String   @map("entity_type")
-  entityId        String   @map("entity_id")
+  entityType      String    @map("entity_type")
+  entityId        String    @map("entity_id")
   title           String
-  status          String   @default("PENDING") @map("status") // PENDING, APPROVED, REJECTED, CANCELLED
-  requesterUserId String   @map("requester_user_id")
-  approverUserId  String?  @map("approver_user_id")
+  status          String    @default("PENDING") @map("status") // PENDING, APPROVED, REJECTED, CANCELLED
+  requesterUserId String    @map("requester_user_id")
+  approverUserId  String?   @map("approver_user_id")
   approvedAt      DateTime? @map("approved_at")
   remarks         String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   steps  ApprovalStep[]
@@ -294,15 +321,15 @@ model ApprovalRequest {
 }
 
 model ApprovalStep {
-  id              String    @id @default(uuid())
-  tenantId        String    @map("tenant_id")
-  requestId       String    @map("request_id")
-  stepNumber      Int       @map("step_number")
-  approverRoleId  String    @map("approver_role_id")
-  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
-  decisionByUserId String?  @map("decision_by_user_id")
-  decisionAt      DateTime? @map("decision_at")
-  comments        String?
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  requestId        String    @map("request_id")
+  stepNumber       Int       @map("step_number")
+  approverRoleId   String    @map("approver_role_id")
+  status           String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  decisionByUserId String?   @map("decision_by_user_id")
+  decisionAt       DateTime? @map("decision_at")
+  comments         String?
 
   tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   request ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -341,4 +368,518 @@ model ModuleFeatureToggle {
 
   @@unique([tenantId, moduleCode])
   @@map("module_feature_toggles")
+}
+
+// ---------------------------------------------------------
+// 8. ADMINISTRATION CONFIGURATION: ACADEMIC STRUCTURE MASTER
+// ---------------------------------------------------------
+
+model AcademicSession {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  name            String
+  code            String
+  startDate       DateTime  @map("start_date")
+  endDate         DateTime  @map("end_date")
+  isCurrent       Boolean   @default(false) @map("is_current")
+  status          String    @default("DRAFT") // DRAFT, ACTIVE, CLOSED, LOCKED
+  lockedAt        DateTime? @map("locked_at")
+  closedAt        DateTime? @map("closed_at")
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classSubjects       ClassSubject[]
+  calendarEvents      AcademicCalendarEvent[]
+  subjectPassingRules SubjectPassingRule[]
+  examRuleAssignments ExamRuleAssignment[]
+  documentSequences   DocumentSequence[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+  @@index([tenantId, isCurrent])
+  @@map("academic_sessions")
+}
+
+model ClassCategory {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  sortOrder   Int      @default(0) @map("sort_order")
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classes SchoolClass[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, sortOrder])
+  @@map("class_categories")
+}
+
+model SchoolClass {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  classCategoryId String?  @map("class_category_id")
+  name            String
+  code            String
+  sortOrder       Int      @default(0) @map("sort_order")
+  description     String?
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classCategory       ClassCategory?       @relation(fields: [classCategoryId], references: [id], onDelete: SetNull)
+  sections            Section[]
+  classSubjects       ClassSubject[]
+  subjectPassingRules SubjectPassingRule[]
+  examRuleAssignments ExamRuleAssignment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, sortOrder])
+  @@map("school_classes")
+}
+
+model Section {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  classId   String   @map("class_id")
+  name      String
+  code      String
+  capacity  Int?
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schoolClass SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, classId, code])
+  @@index([tenantId, classId])
+  @@map("sections")
+}
+
+model Subject {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  shortName   String?  @map("short_name")
+  subjectType String   @default("THEORY") @map("subject_type") // THEORY, PRACTICAL, BOTH, ACTIVITY
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classSubjects       ClassSubject[]
+  subjectPassingRules SubjectPassingRule[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, sortOrder])
+  @@map("subjects")
+}
+
+model ClassSubject {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  academicSessionId String   @map("academic_session_id")
+  classId           String   @map("class_id")
+  subjectId         String   @map("subject_id")
+  isCompulsory      Boolean  @default(true) @map("is_compulsory")
+  sortOrder         Int      @default(0) @map("sort_order")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Cascade)
+  schoolClass     SchoolClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject         Subject         @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, academicSessionId, classId, subjectId])
+  @@index([tenantId, classId])
+  @@map("class_subjects")
+}
+
+model StudentCategory {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("student_categories")
+}
+
+model House {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  color       String?
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("houses")
+}
+
+model AcademicCalendarEvent {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  academicSessionId String?  @map("academic_session_id")
+  title             String
+  eventType         String   @default("EVENT") @map("event_type") // HOLIDAY, EXAM_PERIOD, SPORTS, MEETING, ACTIVITY, EVENT
+  isHoliday         Boolean  @default(false) @map("is_holiday")
+  startDate         DateTime @map("start_date")
+  endDate           DateTime @map("end_date")
+  applicableTo      String   @default("ALL") @map("applicable_to") // ALL, STUDENTS, TEACHERS, EMPLOYEES
+  description       String?
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession? @relation(fields: [academicSessionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, academicSessionId, startDate])
+  @@index([tenantId, isHoliday])
+  @@map("academic_calendar_events")
+}
+
+// ---------------------------------------------------------
+// 9. ADMINISTRATION CONFIGURATION: HR MASTER
+// ---------------------------------------------------------
+
+model Department {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  designations Designation[]
+
+  @@unique([tenantId, code])
+  @@map("departments")
+}
+
+model Designation {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  departmentId String?  @map("department_id")
+  name         String
+  code         String
+  description  String?
+  sortOrder    Int      @default(0) @map("sort_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, departmentId])
+  @@map("designations")
+}
+
+model EmployeeCategory {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("employee_categories")
+}
+
+model EmploymentType {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  code        String
+  salaryBasis String?  @map("salary_basis") // MONTHLY, HOURLY, DAILY, CONTRACT
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("employment_types")
+}
+
+model LeaveType {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  code                String
+  isPaid              Boolean  @default(true) @map("is_paid")
+  annualLimit         Int?     @map("annual_limit")
+  carryForwardAllowed Boolean  @default(false) @map("carry_forward_allowed")
+  carryForwardLimit   Int?     @map("carry_forward_limit")
+  requiresApproval    Boolean  @default(true) @map("requires_approval")
+  description         String?
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("leave_types")
+}
+
+model Shift {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  code         String
+  startTime    String   @map("start_time") // HH:MM 24hr format
+  endTime      String   @map("end_time") // HH:MM 24hr format
+  graceMinutes Int      @default(15) @map("grace_minutes")
+  breakMinutes Int      @default(30) @map("break_minutes")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("shifts")
+}
+
+model WorkingDayPolicy {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  name           String
+  code           String
+  applicableDays Json      @map("applicable_days") // Array of weekday ints e.g. [1, 2, 3, 4, 5]
+  effectiveFrom  DateTime  @map("effective_from")
+  effectiveTo    DateTime? @map("effective_to")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@map("working_day_policies")
+}
+
+// ---------------------------------------------------------
+// 10. ADMINISTRATION CONFIGURATION: EXAM RULE MASTER
+// ---------------------------------------------------------
+
+model GradingScheme {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  name            String
+  code            String
+  calculationMode String   @default("PERCENTAGE") @map("calculation_mode") // PERCENTAGE, GRADE, GPA, GRADE_AND_GPA
+  description     String?
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  gradeBands          GradeBand[]
+  examRuleAssignments ExamRuleAssignment[]
+
+  @@unique([tenantId, code])
+  @@map("grading_schemes")
+}
+
+model GradeBand {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  gradingSchemeId String   @map("grading_scheme_id")
+  minValue        Decimal  @map("min_value") @db.Decimal(5, 2)
+  maxValue        Decimal  @map("max_value") @db.Decimal(5, 2)
+  gradeLabel      String?  @map("grade_label")
+  gpaValue        Decimal? @map("gpa_value") @db.Decimal(3, 2)
+  remarks         String?
+  sortOrder       Int      @default(0) @map("sort_order")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  gradingScheme GradingScheme @relation(fields: [gradingSchemeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, gradingSchemeId])
+  @@map("grade_bands")
+}
+
+model PassingRule {
+  id                       String   @id @default(uuid())
+  tenantId                 String   @map("tenant_id")
+  name                     String
+  code                     String
+  minOverallPercentage     Decimal? @map("min_overall_percentage") @db.Decimal(5, 2)
+  maxFailedSubjects        Int?     @default(0) @map("max_failed_subjects")
+  percentageRuleEnabled    Boolean  @default(true) @map("percentage_rule_enabled")
+  failedSubjectRuleEnabled Boolean  @default(true) @map("failed_subject_rule_enabled")
+  theoryPracticalStrategy  String   @default("SEPARATE") @map("theory_practical_strategy") // SEPARATE, COMBINED, THEORY_ONLY
+  configJson               Json?    @map("config_json")
+  isActive                 Boolean  @default(true) @map("is_active")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subjectPassingRules SubjectPassingRule[]
+  examRuleAssignments ExamRuleAssignment[]
+
+  @@unique([tenantId, code])
+  @@map("passing_rules")
+}
+
+model SubjectPassingRule {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  passingRuleId      String   @map("passing_rule_id")
+  academicSessionId  String?  @map("academic_session_id")
+  classId            String   @map("class_id")
+  subjectId          String   @map("subject_id")
+  totalPassMarks     Decimal? @map("total_pass_marks") @db.Decimal(6, 2)
+  theoryPassMarks    Decimal? @map("theory_pass_marks") @db.Decimal(6, 2)
+  practicalPassMarks Decimal? @map("practical_pass_marks") @db.Decimal(6, 2)
+  passLogic          String   @default("SEPARATE") @map("pass_logic") // SEPARATE, COMBINED
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  passingRule     PassingRule      @relation(fields: [passingRuleId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession? @relation(fields: [academicSessionId], references: [id], onDelete: SetNull)
+  schoolClass     SchoolClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject         Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, passingRuleId, classId, subjectId])
+  @@map("subject_passing_rules")
+}
+
+model ExamRuleAssignment {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  academicSessionId String   @map("academic_session_id")
+  classId           String   @map("class_id")
+  gradingSchemeId   String   @map("grading_scheme_id")
+  passingRuleId     String   @map("passing_rule_id")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession @relation(fields: [academicSessionId], references: [id], onDelete: Cascade)
+  schoolClass     SchoolClass     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  gradingScheme   GradingScheme   @relation(fields: [gradingSchemeId], references: [id], onDelete: Cascade)
+  passingRule     PassingRule     @relation(fields: [passingRuleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, academicSessionId, classId])
+  @@map("exam_rule_assignments")
+}
+
+// ---------------------------------------------------------
+// 11. ADMINISTRATION CONFIGURATION: SYSTEM MASTER
+// ---------------------------------------------------------
+
+model DocumentSequence {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  moduleCode        String   @map("module_code") // ADMISSIONS, STUDENTS, BILLING, HR_PAYROLL, ACCOUNTS
+  documentType      String   @map("document_type") // ADMISSION_NO, STUDENT_ID, FEE_VOUCHER, RECEIPT, EMPLOYEE_NO
+  prefix            String?
+  suffix            String?
+  startingNumber    Int      @default(1) @map("starting_number")
+  currentNumber     Int      @default(0) @map("current_number")
+  paddingLength     Int      @default(5) @map("padding_length")
+  resetPolicy       String   @default("NEVER") @map("reset_policy") // NEVER, ANNUAL_SESSION, FISCAL_YEAR, MONTHLY
+  academicSessionId String?  @map("academic_session_id")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession? @relation(fields: [academicSessionId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, moduleCode, documentType, academicSessionId])
+  @@index([tenantId, moduleCode, documentType])
+  @@map("document_sequences")
+}
+
+model CustomFieldDefinition {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  entityType      String   @map("entity_type") // STUDENT, EMPLOYEE, ADMISSION, GUARDIAN
+  fieldKey        String   @map("field_key")
+  label           String
+  fieldType       String   @map("field_type") // TEXT, NUMBER, DATE, DROPDOWN, MULTISELECT, CHECKBOX, RADIO, FILE, IMAGE, TEXTAREA
+  isRequired      Boolean  @default(false) @map("is_required")
+  sortOrder       Int      @default(0) @map("sort_order")
+  validationRules Json?    @map("validation_rules")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  options CustomFieldOption[]
+
+  @@unique([tenantId, entityType, fieldKey])
+  @@map("custom_field_definitions")
+}
+
+model CustomFieldOption {
+  id                      String   @id @default(uuid())
+  tenantId                String   @map("tenant_id")
+  customFieldDefinitionId String   @map("custom_field_definition_id")
+  label                   String
+  value                   String
+  sortOrder               Int      @default(0) @map("sort_order")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  tenant                Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customFieldDefinition CustomFieldDefinition @relation(fields: [customFieldDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, customFieldDefinitionId, value])
+  @@map("custom_field_options")
 }
