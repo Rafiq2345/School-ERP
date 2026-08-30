@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import { AppShell } from '@/components/layout/AppShell';
 import { AuthenticatedUser, TenantContext } from '@/lib/types';
 import { MODULE_NAV_CONFIGS } from '@/lib/navigation/module-nav';
@@ -38,7 +39,9 @@ export default async function AdminModulePage({ params }: PageProps) {
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-              <a href="/admin" className="hover:text-blue-600">Admin Dashboard</a>
+              <Link href="/admin" className="hover:text-blue-600">
+                Admin Dashboard
+              </Link>
               <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
               <span className="font-semibold text-slate-800">{config.moduleName}</span>
             </div>
@@ -61,39 +64,34 @@ export default async function AdminModulePage({ params }: PageProps) {
               const Icon = item.icon;
               const isLast = index === config.items.length - 1;
 
+              let cardStyle = 'border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/40';
+              let iconStyle = 'bg-blue-100/80 text-blue-700 group-hover:bg-blue-600 group-hover:text-white';
+              let textStyle = 'text-slate-800 group-hover:text-blue-700';
+              let arrowStyle = 'text-slate-400 group-hover:text-blue-600';
+
+              if (isLast) {
+                cardStyle = 'border-indigo-200 bg-indigo-50/40 hover:bg-indigo-100/60';
+                iconStyle = 'bg-indigo-600 text-white';
+                textStyle = 'text-indigo-900';
+                arrowStyle = 'text-indigo-600';
+              } else if (item.isAudit) {
+                cardStyle = 'border-amber-200 bg-amber-50/30 hover:bg-amber-100/50';
+                iconStyle = 'bg-amber-500 text-white';
+                textStyle = 'text-amber-900';
+                arrowStyle = 'text-amber-600';
+              }
+
               return (
-                <a
+                <Link
                   key={item.id}
                   href={item.href}
-                  className={`p-4 rounded-xl border transition-all flex items-start gap-3 group ${
-                    isLast
-                      ? 'border-indigo-200 bg-indigo-50/40 hover:bg-indigo-100/60'
-                      : item.isAudit
-                      ? 'border-amber-200 bg-amber-50/30 hover:bg-amber-100/50'
-                      : 'border-slate-200/80 hover:border-blue-300 hover:bg-blue-50/40'
-                  }`}
+                  className={`p-4 rounded-xl border transition-all flex items-start gap-3 group ${cardStyle}`}
                 >
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                      isLast
-                        ? 'bg-indigo-600 text-white'
-                        : item.isAudit
-                        ? 'bg-amber-500 text-white'
-                        : 'bg-blue-100/80 text-blue-700 group-hover:bg-blue-600 group-hover:text-white'
-                    }`}
-                  >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${iconStyle}`}>
                     <Icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
-                    <p
-                      className={`font-semibold ${
-                        isLast
-                          ? 'text-indigo-900'
-                          : item.isAudit
-                          ? 'text-amber-900'
-                          : 'text-slate-800 group-hover:text-blue-700'
-                      }`}
-                    >
+                    <p className={`font-semibold ${textStyle}`}>
                       {item.label}
                     </p>
                     <p className="text-slate-500 text-[11px] mt-0.5">
@@ -105,15 +103,9 @@ export default async function AdminModulePage({ params }: PageProps) {
                     </p>
                   </div>
                   <ArrowRight
-                    className={`w-3.5 h-3.5 mt-0.5 transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 rtl:rotate-180 ${
-                      isLast
-                        ? 'text-indigo-600'
-                        : item.isAudit
-                        ? 'text-amber-600'
-                        : 'text-slate-400 group-hover:text-blue-600'
-                    }`}
+                    className={`w-3.5 h-3.5 mt-0.5 transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5 rtl:rotate-180 ${arrowStyle}`}
                   />
-                </a>
+                </Link>
               );
             })}
           </div>

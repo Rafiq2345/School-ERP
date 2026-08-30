@@ -36,6 +36,9 @@ model Tenant {
   approvalSteps     ApprovalStep[]
   settings          TenantSetting[]
   featureToggles    ModuleFeatureToggle[]
+  subscription      TenantSubscription?
+  providerInvoices  ProviderInvoice[]
+  proofSubmissions  PaymentProofSubmission[]
 
   // Administration Configuration Relations
   academicSessions    AcademicSession[]
@@ -368,6 +371,102 @@ model ModuleFeatureToggle {
 
   @@unique([tenantId, moduleCode])
   @@map("module_feature_toggles")
+}
+
+// ---------------------------------------------------------
+// 7.1 PLATFORM SUBSCRIPTION, LICENSING & INVOICING (PROVIDER -> SCHOOL)
+// ---------------------------------------------------------
+
+model TenantSubscription {
+  id                 String    @id @default(uuid())
+  tenantId           String    @unique @map("tenant_id")
+  planName           String    @default("BASE") @map("plan_name") // BASE, STANDARD, FULL, ENTERPRISE
+  billingCycle       String    @default("MONTHLY") @map("billing_cycle") // MONTHLY, QUARTERLY, ANNUAL
+  baseFee            Decimal   @default(15000.00) @map("base_fee") @db.Decimal(10, 2)
+  currency           String    @default("PKR")
+  status             String    @default("ACTIVE") // ACTIVE, PAYMENT_DUE, GRACE_PERIOD, SUSPENDED, MANUALLY_ACTIVATED, EXEMPT
+  currentPeriodStart DateTime  @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime  @map("current_period_end")
+  gracePeriodDays    Int       @default(7) @map("grace_period_days")
+  showHistoryToSchool Boolean  @default(true) @map("show_history_to_school")
+  suspendedAt        DateTime? @map("suspended_at")
+  lastPaymentDate    DateTime? @map("last_payment_date")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoices ProviderInvoice[]
+
+  @@map("tenant_subscriptions")
+}
+
+model ProviderInvoice {
+  id              String    @id @default(uuid())
+  invoiceNo       String    @unique @map("invoice_no") // e.g. INV-2026-0001
+  tenantId        String    @map("tenant_id")
+  subscriptionId  String?   @map("subscription_id")
+  billingPeriod   String    @map("billing_period") // e.g. "August 2026"
+  issueDate       DateTime  @default(now()) @map("issue_date")
+  dueDate         DateTime  @map("due_date")
+  graceUntil      DateTime? @map("grace_until")
+  amount          Decimal   @map("amount") @db.Decimal(10, 2)
+  taxAmount       Decimal   @default(0.00) @map("tax_amount") @db.Decimal(10, 2)
+  discountAmount  Decimal   @default(0.00) @map("discount_amount") @db.Decimal(10, 2)
+  previousBalance Decimal   @default(0.00) @map("previous_balance") @db.Decimal(10, 2)
+  totalPayable    Decimal   @map("total_payable") @db.Decimal(10, 2)
+  paidAmount      Decimal   @default(0.00) @map("paid_amount") @db.Decimal(10, 2)
+  status          String    @default("UNPAID") // UNPAID, PARTIALLY_PAID, PAID, OVERDUE, WAIVED, CANCELLED
+  providerNotes   String?   @map("provider_notes") // Internal provider notes (HIDDEN from school)
+  schoolNotes     String?   @map("school_notes") // Notes visible to school
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription TenantSubscription?     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  proofs       PaymentProofSubmission[]
+
+  @@map("provider_invoices")
+}
+
+model PaymentProofSubmission {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  invoiceId           String    @map("invoice_id")
+  documentUrl         String    @map("document_url") // Receipt screenshot / base64 / storage URL
+  submittedAmount     Decimal   @map("submitted_amount") @db.Decimal(10, 2)
+  paymentDate         DateTime  @default(now()) @map("payment_date")
+  transactionRef      String    @map("transaction_ref") // UTR / Reference number
+  bankName            String?   @map("bank_name") // Sender bank or payment channel (e.g. Meezan, Raast, JazzCash)
+  notes               String?   @map("notes")
+  submittedByUserId   String    @map("submitted_by_user_id")
+  verificationStatus  String    @default("PENDING") // PENDING, AI_MATCH, AI_MISMATCH, NEEDS_MANUAL_REVIEW, VERIFIED, REJECTED
+  aiConfidenceScore   Decimal?  @map("ai_confidence_score") @db.Decimal(4, 2)
+  aiExtractedDataJson Json?     @map("ai_extracted_data_json") // Extracted: { amount, ref, date, sender, receiver }
+  verifiedByUserId    String?   @map("verified_by_user_id")
+  verifiedAt          DateTime? @map("verified_at")
+  rejectionReason     String?   @map("rejection_reason")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice ProviderInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("payment_proof_submissions")
+}
+
+model ProviderReceivingAccount {
+  id            String   @id @default(uuid())
+  bankName      String   @map("bank_name") // e.g. "Meezan Bank Ltd"
+  accountTitle  String   @map("account_title") // e.g. "EduERP Technologies (Pvt) Ltd"
+  accountNumber String   @map("account_number") // e.g. "0101-0105678901"
+  iban          String?  @map("iban") // e.g. "PK36MEZN0001010105678901"
+  raastId       String?  @map("raast_id") // e.g. "billing@eduerp.pk"
+  instructions  String?  @map("instructions") // "Please mention Invoice # in payment reference"
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("provider_receiving_accounts")
 }
 
 // ---------------------------------------------------------
