@@ -14,7 +14,7 @@ Tenant-Scoped Operational Domains (Each record contains indexed tenant_id):
   1. Configuration: SchoolSetting, AcademicSession, Term, AcademicClass, ClassSection, Subject, ClassSubject
   2. Users & RBAC: User, Role, Permission, RolePermission, UserRole, UserSession, PasswordResetToken
   3. Admissions & Students: AdmissionInquiry, AdmissionApplication, Student, Guardian, StudentGuardianRelation, StudentEnrollmentHistory
-  4. Attendance & Leaves: StudentDailyAttendance, StudentSubjectAttendance, StaffAttendance, LeaveType, StaffLeaveApplication
+  4. Attendance & Leaves: StudentAttendanceRecord, StudentAttendanceAuditLog, Shift, WorkSchedule, WorkScheduleDay, EmployeeScheduleAssignment, EmployeeAttendanceRecord, EmployeeAttendanceAuditLog, SchoolHoliday, WeeklyOffSetting, LeaveType, StaffLeaveApplication
   5. Academics & Timetable: TimetableSlot, TimetableEntry, TeacherSubjectAssignment
   6. Billing, Fees & Finance: FeeGroup, FeeType, FeeStructure, FeeStructureItem, FeeDiscountPolicy, StudentFeeDiscount, FeeInstallmentPlan, FeeInstallment, VoucherGenerationBatch, FeeVoucher, FeeVoucherItem, FeePayment, ZeroBalanceVoucherSettlement, FeeReversalLog, BankAccount, BankStatementEntry, BankReconciliation
   7. Exams & Results / GPA: ExamTerm, ExamSchedule, GradeScale, GradeScaleDetail, ExamMarksEntry, StudentResult, StudentResultCard
@@ -57,7 +57,16 @@ All tenant-scoped tables enforce composite uniqueness with `tenant_id` to guaran
 - **`EmployeeCategory`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
 - **`EmploymentType`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `salary_basis`, `sort_order`, `is_active`, Unique(`tenant_id`, `code`).
 - **`LeaveType`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `is_paid`, `annual_limit`, `carry_forward_allowed`, `carry_forward_limit`, `requires_approval`, `is_active`, Unique(`tenant_id`, `code`).
-- **`Shift`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `start_time`, `end_time`, `grace_minutes`, `break_minutes`, `is_active`, Unique(`tenant_id`, `code`).
+- **`Shift`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `start_time`, `end_time`, `grace_minutes`, `early_exit_grace_minutes`, `break_minutes`, `min_hours_full_day`, `min_hours_half_day`, `working_days` (JSON), `is_default`, `is_active`, Unique(`tenant_id`, `code`).
+- **`WorkSchedule`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `description`, `is_default`, `is_active`, `effective_from`, `effective_to`, Unique(`tenant_id`, `code`).
+- **`WorkScheduleDay`**: `id` (UUID, PK), `work_schedule_id` (FK), `day_of_week` (0-6), `is_working_day`, `shift_ids` (JSON), Unique(`work_schedule_id`, `day_of_week`).
+- **`EmployeeScheduleAssignment`**: `id` (UUID, PK), `tenant_id` (UUID), `schedule_id` (FK), `assignment_type` (EMPLOYEE, DEPARTMENT, DESIGNATION, EMPLOYMENT_TYPE, INSTITUTIONAL_DEFAULT), `employee_id` (FK), `department_id` (FK), `designation_id` (FK), `employment_type_id` (FK), `is_override`, `effective_from`, `effective_to`, `reason`, `is_active`.
+- **`EmployeeAttendanceRecord`**: `id` (UUID, PK), `tenant_id` (UUID), `employee_id` (FK), `shift_id` (FK), `attendance_date`, `check_in_time`, `check_out_time`, `scheduled_start_time`, `scheduled_end_time`, `status` (PRESENT, LATE, HALF_DAY, ABSENT, ON_LEAVE, HOLIDAY, OFF_DAY), `late_minutes`, `early_exit_minutes`, `worked_minutes`, `overtime_minutes`, `remarks`, Unique(`tenant_id`, `employee_id`, `attendance_date`, `shift_id`).
+- **`EmployeeAttendanceAuditLog`**: `id` (UUID, PK), `tenant_id` (UUID), `attendance_record_id` (FK), `employee_id` (FK), `shift_id` (FK), `attendance_date`, `previous_status`, `new_status`, `previous_check_in`, `new_check_in`, `previous_check_out`, `new_check_out`, `previous_remarks`, `new_remarks`, `correction_reason`, `corrected_by_user_id` (FK).
+- **`StudentAttendanceRecord`**: `id` (UUID, PK), `tenant_id` (UUID), `student_id` (FK), `academic_session_id` (FK), `class_id` (FK), `section_id` (FK), `attendance_date`, `status` (PRESENT, ABSENT, LATE, HALF_DAY, EXCUSED, HOLIDAY, OFF_DAY), `remarks`, Unique(`tenant_id`, `student_id`, `attendance_date`).
+- **`StudentAttendanceAuditLog`**: `id` (UUID, PK), `tenant_id` (UUID), `attendance_record_id` (FK), `previous_status`, `new_status`, `reason`, `user_id` (FK).
+- **`SchoolHoliday`**: `id` (UUID, PK), `tenant_id` (UUID), `title`, `holiday_type` (PUBLIC_HOLIDAY, INSTITUTIONAL_EVENT, VACATION, EMERGENCY_CLOSURE), `start_date`, `end_date`, `scope` (WHOLE_SCHOOL, ACADEMIC_SESSION, CLASS_SPECIFIC), `academic_session_id` (FK, nullable), `target_class_ids` (String[]), `status`.
+- **`WeeklyOffSetting`**: `id` (UUID, PK), `tenant_id` (UUID), `days_of_week` (Int[]), `academic_session_id` (FK, nullable), `is_active`.
 - **`WorkingDayPolicy`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `applicable_days` (JSONB), `effective_from`, `effective_to`, `is_active`, Unique(`tenant_id`, `code`).
 - **`GradingScheme`**: `id` (UUID, PK), `tenant_id` (UUID), `name`, `code`, `calculation_mode` (PERCENTAGE, GRADE, GPA, GRADE_AND_GPA), `is_active`, Unique(`tenant_id`, `code`).
 - **`GradeBand`**: `id` (UUID, PK), `tenant_id` (UUID), `grading_scheme_id` (FK), `min_value` (Decimal), `max_value` (Decimal), `grade_label`, `gpa_value`, `remarks`, `sort_order`, `is_active`.

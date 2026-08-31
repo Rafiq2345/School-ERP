@@ -79,6 +79,13 @@ model Tenant {
   schoolHolidays      SchoolHoliday[]
   weeklyOffSettings   WeeklyOffSetting[]
   holidayAuditLogs    HolidayAuditLog[]
+  employees                 Employee[]
+  employeeAttendanceRecords EmployeeAttendanceRecord[]
+  employeeAttendanceAudits  EmployeeAttendanceAuditLog[]
+  shiftAssignments          EmployeeShiftAssignment[]
+  shiftAuditLogs            ShiftAuditLog[]
+  workSchedules             WorkSchedule[]
+  scheduleAssignments       EmployeeScheduleAssignment[]
 
   @@map("tenants")
 }
@@ -142,6 +149,9 @@ model User {
   createdHolidays      SchoolHoliday[]           @relation("HolidayCreator")
   cancelledHolidays    SchoolHoliday[]           @relation("HolidayCanceller")
   holidayAuditLogs     HolidayAuditLog[]         @relation("HolidayAuditor")
+  linkedEmployee            Employee?                 @relation("UserEmployee")
+  recordedEmpAttendances    EmployeeAttendanceRecord[] @relation("EmpAttendanceRecorder")
+  correctedEmpAttendances   EmployeeAttendanceAuditLog[] @relation("EmpAttendanceCorrector")
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -726,6 +736,9 @@ model Department {
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   designations Designation[]
+  employees    Employee[]
+  shiftAssignments    EmployeeShiftAssignment[]
+  scheduleAssignments EmployeeScheduleAssignment[]
 
   @@unique([tenantId, code])
   @@map("departments")
@@ -745,6 +758,9 @@ model Designation {
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  employees  Employee[]
+  shiftAssignments    EmployeeShiftAssignment[]
+  scheduleAssignments EmployeeScheduleAssignment[]
 
   @@unique([tenantId, code])
   @@index([tenantId, departmentId])
@@ -762,7 +778,8 @@ model EmployeeCategory {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees Employee[]
 
   @@unique([tenantId, code])
   @@map("employee_categories")
@@ -780,7 +797,9 @@ model EmploymentType {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees           Employee[]
+  scheduleAssignments EmployeeScheduleAssignment[]
 
   @@unique([tenantId, code])
   @@map("employment_types")
@@ -801,29 +820,98 @@ model LeaveType {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employeeAttendanceRecords EmployeeAttendanceRecord[]
 
   @@unique([tenantId, code])
   @@map("leave_types")
 }
 
 model Shift {
-  id           String   @id @default(uuid())
-  tenantId     String   @map("tenant_id")
-  name         String
-  code         String
-  startTime    String   @map("start_time") // HH:MM 24hr format
-  endTime      String   @map("end_time") // HH:MM 24hr format
-  graceMinutes Int      @default(15) @map("grace_minutes")
-  breakMinutes Int      @default(30) @map("break_minutes")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  name                  String
+  code                  String
+  startTime             String    @map("start_time") // HH:MM 24hr format (e.g. 08:00)
+  endTime               String    @map("end_time") // HH:MM 24hr format (e.g. 16:00)
+  graceMinutes          Int       @default(15) @map("grace_minutes") // Late arrival grace
+  earlyExitGraceMinutes Int       @default(0) @map("early_exit_grace_minutes")
+  breakMinutes          Int       @default(0) @map("break_minutes")
+  minHoursFullDay       Decimal?  @default(6.00) @map("min_hours_full_day") @db.Decimal(4, 2)
+  minHoursHalfDay       Decimal?  @default(3.50) @map("min_hours_half_day") @db.Decimal(4, 2)
+  workingDays           Json?     @map("working_days") // array of weekday numbers [1,2,3,4,5,6] (1=Mon..7=Sun or 0=Sun)
+  daySpecificTimings    Json?     @map("day_specific_timings") // { "5": { "startTime": "08:00", "endTime": "12:30" } }
+  isDefault             Boolean   @default(false) @map("is_default")
+  effectiveFrom         DateTime  @default(now()) @map("effective_from")
+  effectiveTo           DateTime? @map("effective_to")
+  isActive              Boolean   @default(true) @map("is_active")
+  description           String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees                 Employee[]
+  employeeAttendanceRecords EmployeeAttendanceRecord[]
+  assignments               EmployeeShiftAssignment[]
+  auditLogs                 ShiftAuditLog[]
+  attendanceAuditLogs       EmployeeAttendanceAuditLog[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@index([tenantId, isDefault])
   @@map("shifts")
+}
+
+model EmployeeShiftAssignment {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  shiftId          String    @map("shift_id")
+  assignmentType   String    @default("EMPLOYEE") @map("assignment_type") // EMPLOYEE, DEPARTMENT, DESIGNATION, INSTITUTIONAL_DEFAULT
+  employeeId       String?   @map("employee_id")
+  departmentId     String?   @map("department_id")
+  designationId    String?   @map("designation_id")
+  isOverride       Boolean   @default(false) @map("is_override") // true for individual employee custom overrides
+  applicableDays   Json?     @map("applicable_days") // [1,2,3,4,5] or null to inherit from shift
+  isActive         Boolean   @default(true) @map("is_active")
+  effectiveFrom    DateTime  @map("effective_from") // Normalized UTC midnight
+  effectiveTo      DateTime? @map("effective_to") // Normalized UTC midnight
+  reason           String?
+  assignedByUserId String?   @map("assigned_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shift       Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  employee    Employee?    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department  Department?  @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  designation Designation? @relation(fields: [designationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId, effectiveFrom])
+  @@index([tenantId, departmentId, effectiveFrom])
+  @@index([tenantId, designationId, effectiveFrom])
+  @@index([tenantId, assignmentType])
+  @@index([tenantId, isActive])
+  @@map("employee_shift_assignments")
+}
+
+model ShiftAuditLog {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  shiftId                String?  @map("shift_id")
+  action                 String   // CREATED, UPDATED, ACTIVATED, DEACTIVATED, BULK_ASSIGNED, OVERRIDE_CREATED, OVERRIDE_REMOVED
+  previousState          Json?    @map("previous_state")
+  newState               Json?    @map("new_state")
+  affectedEmployeesCount Int?     @map("affected_employees_count")
+  reason                 String?
+  userId                 String?  @map("user_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  shift  Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, shiftId])
+  @@index([tenantId, createdAt])
+  @@map("shift_audit_logs")
 }
 
 model WorkingDayPolicy {
@@ -1436,4 +1524,200 @@ model HolidayAuditLog {
   @@index([tenantId, action])
   @@index([tenantId, createdAt])
   @@map("holiday_audit_logs")
+}
+
+// ---------------------------------------------------------
+// 15. EMPLOYEE & HR ATTENDANCE MANAGEMENT (PHASE 2)
+// ---------------------------------------------------------
+
+model Employee {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  employeeNo           String    @map("employee_no")
+  userId               String?   @unique @map("user_id")
+  firstNameEn          String    @map("first_name_en")
+  lastNameEn           String?   @map("last_name_en")
+  fullNameUr           String?   @map("full_name_ur")
+  gender               String    @default("MALE") // MALE, FEMALE, OTHER
+  dob                  DateTime? @map("dob")
+  nationalId           String?   @map("national_id") // CNIC / Passport
+  phone                String?
+  email                String?
+  departmentId         String?   @map("department_id")
+  designationId        String?   @map("designation_id")
+  employeeCategoryId   String?   @map("employee_category_id")
+  employmentTypeId     String?   @map("employment_type_id")
+  shiftId              String?   @map("shift_id")
+  joiningDate          DateTime  @default(now()) @map("joining_date")
+  currentStatus        String    @default("ACTIVE") @map("current_status") // ACTIVE, ON_LEAVE, PROBATION, SUSPENDED, RESIGNED, TERMINATED, RETIRED
+  standardWorkingHours Decimal?  @default(8.00) @map("standard_working_hours") @db.Decimal(4, 2)
+  customFields         Json?     @map("custom_fields")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  tenant            Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User?                      @relation("UserEmployee", fields: [userId], references: [id], onDelete: SetNull)
+  department        Department?                @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation       Designation?               @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  employeeCategory  EmployeeCategory?          @relation(fields: [employeeCategoryId], references: [id], onDelete: SetNull)
+  employmentType    EmploymentType?            @relation(fields: [employmentTypeId], references: [id], onDelete: SetNull)
+  shift             Shift?                     @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  attendanceRecords EmployeeAttendanceRecord[]
+  auditLogs         EmployeeAttendanceAuditLog[]
+  shiftAssignments    EmployeeShiftAssignment[]
+  scheduleAssignments EmployeeScheduleAssignment[]
+
+  @@unique([tenantId, employeeNo])
+  @@index([tenantId, currentStatus])
+  @@index([tenantId, departmentId])
+  @@index([tenantId, designationId])
+  @@map("employees")
+}
+
+model EmployeeAttendanceRecord {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  employeeId         String    @map("employee_id")
+  attendanceDate     DateTime  @map("attendance_date") // Normalized UTC midnight
+  shiftId            String    @map("shift_id")
+  scheduledStartTime String?   @map("scheduled_start_time") // HH:MM
+  scheduledEndTime   String?   @map("scheduled_end_time") // HH:MM
+  checkInTime        DateTime? @map("check_in_time")
+  checkOutTime       DateTime? @map("check_out_time")
+  status             String    @default("PRESENT") // PRESENT, ABSENT, LATE, HALF_DAY, ON_LEAVE, EARLY_DEPARTURE, HOLIDAY, OFF_DAY
+  lateMinutes        Int       @default(0) @map("late_minutes")
+  earlyExitMinutes   Int       @default(0) @map("early_exit_minutes")
+  workedMinutes      Int       @default(0) @map("worked_minutes")
+  overtimeMinutes    Int       @default(0) @map("overtime_minutes")
+  isHoliday          Boolean   @default(false) @map("is_holiday")
+  isWeeklyOff        Boolean   @default(false) @map("is_weekly_off")
+  leaveTypeId        String?   @map("leave_type_id")
+  remarks            String?
+  punchSource        String    @default("MANUAL") @map("punch_source") // MANUAL, BIOMETRIC, RFID, MOBILE_APP
+  recordedByUserId   String?   @map("recorded_by_user_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  tenant           Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee         Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift            Shift                        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  leaveType        LeaveType?                   @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  recordedBy       User?                        @relation("EmpAttendanceRecorder", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  auditLogs        EmployeeAttendanceAuditLog[]
+
+  @@unique([tenantId, employeeId, attendanceDate, shiftId])
+  @@index([tenantId, attendanceDate])
+  @@index([tenantId, employeeId])
+  @@index([tenantId, status])
+  @@index([tenantId, shiftId])
+  @@map("employee_attendance_records")
+}
+
+model EmployeeAttendanceAuditLog {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  attendanceRecordId String    @map("attendance_record_id")
+  employeeId         String    @map("employee_id")
+  shiftId            String?   @map("shift_id")
+  attendanceDate     DateTime  @map("attendance_date")
+  previousStatus     String    @map("previous_status")
+  newStatus          String    @map("new_status")
+  previousCheckIn    DateTime? @map("previous_check_in")
+  newCheckIn         DateTime? @map("new_check_in")
+  previousCheckOut   DateTime? @map("previous_check_out")
+  newCheckOut        DateTime? @map("new_check_out")
+  previousRemarks    String?   @map("previous_remarks")
+  newRemarks         String?   @map("new_remarks")
+  correctionReason   String    @map("correction_reason")
+  correctedByUserId  String?   @map("corrected_by_user_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attendanceRecord EmployeeAttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  employee         Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift            Shift?                   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  correctedBy      User?                    @relation("EmpAttendanceCorrector", fields: [correctedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, attendanceRecordId])
+  @@index([tenantId, employeeId])
+  @@index([tenantId, shiftId])
+  @@index([tenantId, createdAt])
+  @@map("employee_attendance_audit_logs")
+}
+
+// ---------------------------------------------------------
+// 16. WORK SCHEDULE & DUTY PATTERN MANAGEMENT
+// ---------------------------------------------------------
+
+model WorkSchedule {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  name          String
+  code          String
+  description   String?
+  isDefault     Boolean   @default(false) @map("is_default")
+  isActive      Boolean   @default(true) @map("is_active")
+  effectiveFrom DateTime  @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  days        WorkScheduleDay[]
+  assignments EmployeeScheduleAssignment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@index([tenantId, isDefault])
+  @@map("work_schedules")
+}
+
+model WorkScheduleDay {
+  id             String   @id @default(uuid())
+  workScheduleId String   @map("work_schedule_id")
+  dayOfWeek      Int      @map("day_of_week") // 0=Sunday, 1=Monday ... 6=Saturday
+  isWorkingDay   Boolean  @default(true) @map("is_working_day")
+  shiftIds       Json     @map("shift_ids") // Array of Shift UUID strings e.g. ["shift-id-1", "shift-id-2"]
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  workSchedule WorkSchedule @relation(fields: [workScheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([workScheduleId, dayOfWeek])
+  @@index([workScheduleId])
+  @@map("work_schedule_days")
+}
+
+model EmployeeScheduleAssignment {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  scheduleId       String    @map("schedule_id")
+  assignmentType   String    @default("EMPLOYEE") @map("assignment_type") // EMPLOYEE, DEPARTMENT, DESIGNATION, EMPLOYMENT_TYPE, INSTITUTIONAL_DEFAULT
+  employeeId       String?   @map("employee_id")
+  departmentId     String?   @map("department_id")
+  designationId    String?   @map("designation_id")
+  employmentTypeId String?   @map("employment_type_id")
+  isOverride       Boolean   @default(false) @map("is_override") // true for individual employee custom overrides
+  effectiveFrom    DateTime  @map("effective_from") // Normalized UTC midnight
+  effectiveTo      DateTime? @map("effective_to") // Normalized UTC midnight
+  reason           String?
+  isActive         Boolean   @default(true) @map("is_active")
+  assignedByUserId String?   @map("assigned_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule       WorkSchedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  employee       Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  designation    Designation?    @relation(fields: [designationId], references: [id], onDelete: Cascade)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId, effectiveFrom])
+  @@index([tenantId, departmentId, effectiveFrom])
+  @@index([tenantId, designationId, effectiveFrom])
+  @@index([tenantId, employmentTypeId, effectiveFrom])
+  @@index([tenantId, scheduleId])
+  @@index([tenantId, isActive])
+  @@map("employee_schedule_assignments")
 }
