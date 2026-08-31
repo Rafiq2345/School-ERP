@@ -82,15 +82,17 @@ export function StudentProfile360View({ studentId }: StudentProfileProps) {
     documentUrl: 'https://storage.school-erp.local/docs/sample_attachment.pdf',
   });
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [attendanceData, setAttendanceData] = useState<any | null>(null);
 
   const { success, error } = useToast();
 
   const fetchStudent = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [studRes, customRes] = await Promise.all([
+      const [studRes, customRes, attRes] = await Promise.all([
         fetch(`/api/admin/students/${studentId}`).then((r) => r.json()),
         fetch('/api/admin/students/custom-fields').then((r) => r.json()).catch(() => ({ data: [] })),
+        fetch(`/api/admin/students/${studentId}/attendance`).then((r) => r.json()).catch(() => ({ data: null })),
       ]);
 
       if (studRes.success) {
@@ -101,6 +103,10 @@ export function StudentProfile360View({ studentId }: StudentProfileProps) {
 
       if (customRes.success && Array.isArray(customRes.data)) {
         setCustomFieldDefs(customRes.data);
+      }
+
+      if (attRes?.success && attRes.data) {
+        setAttendanceData(attRes.data);
       }
     } catch {
       error('Network Error', 'Failed to load student profile.');

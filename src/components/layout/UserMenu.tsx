@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { User, LogOut, Shield, School, Settings } from 'lucide-react';
+import Link from 'next/link';
+import { LogOut, Shield, School, Settings } from 'lucide-react';
 import { AuthenticatedUser, TenantContext } from '@/lib/types';
 
 interface UserMenuProps {
@@ -62,22 +63,21 @@ export function UserMenu({ user, tenant, onLogout }: UserMenuProps) {
           {/* Role Badge */}
           <div className="px-4 py-2 border-b border-slate-100 flex items-center gap-2 text-xs text-slate-600">
             <Shield className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-            <span className="text-[11px]">Role: <strong className="text-slate-800 font-semibold">{user.roles.join(', ') || user.userType}</strong></span>
+            <span className="text-[11px]">
+              Role: <strong className="text-slate-800 font-semibold">{user.roles.join(', ') || user.userType}</strong>
+            </span>
           </div>
 
           {/* Profile Actions */}
           <div className="py-1">
-            <a
-              href="#profile-settings"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsOpen(false);
-              }}
+            <Link
+              href="/admin/settings"
+              onClick={() => setIsOpen(false)}
               className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
             >
               <Settings className="w-4 h-4 text-slate-400" />
-              <span>Profile Settings</span>
-            </a>
+              <span>Administration Settings</span>
+            </Link>
           </div>
 
           {/* Logout Action */}

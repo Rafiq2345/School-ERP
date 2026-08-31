@@ -74,6 +74,11 @@ model Tenant {
   studentPrevSchools  StudentPreviousSchool[]
   promotionBatches    PromotionBatch[]
   promotionBatchItems PromotionBatchItem[]
+  attendanceRecords   StudentAttendanceRecord[]
+  attendanceAuditLogs AttendanceAuditLog[]
+  schoolHolidays      SchoolHoliday[]
+  weeklyOffSettings   WeeklyOffSetting[]
+  holidayAuditLogs    HolidayAuditLog[]
 
   @@map("tenants")
 }
@@ -123,15 +128,20 @@ model User {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles   UserRole[]
-  sessions        UserSession[]
-  resetTokens     PasswordResetToken[]
-  linkedGuardians Guardian[]
-  statusChanges   StudentStatusHistory[]
-  uploadedDocs    StudentDocument[]
-  processedBatches PromotionBatch[]      @relation("BatchProcessor")
-  rolledBackBatches PromotionBatch[]     @relation("BatchRollbacker")
+  tenant               Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles            UserRole[]
+  sessions             UserSession[]
+  resetTokens          PasswordResetToken[]
+  linkedGuardians      Guardian[]
+  statusChanges        StudentStatusHistory[]
+  uploadedDocs         StudentDocument[]
+  processedBatches     PromotionBatch[]          @relation("BatchProcessor")
+  rolledBackBatches    PromotionBatch[]          @relation("BatchRollbacker")
+  recordedAttendances  StudentAttendanceRecord[] @relation("AttendanceRecorder")
+  correctedAttendances AttendanceAuditLog[]      @relation("AttendanceCorrector")
+  createdHolidays      SchoolHoliday[]           @relation("HolidayCreator")
+  cancelledHolidays    SchoolHoliday[]           @relation("HolidayCanceller")
+  holidayAuditLogs     HolidayAuditLog[]         @relation("HolidayAuditor")
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -392,21 +402,21 @@ model ModuleFeatureToggle {
 // ---------------------------------------------------------
 
 model TenantSubscription {
-  id                 String    @id @default(uuid())
-  tenantId           String    @unique @map("tenant_id")
-  planName           String    @default("BASE") @map("plan_name") // BASE, STANDARD, FULL, ENTERPRISE
-  billingCycle       String    @default("MONTHLY") @map("billing_cycle") // MONTHLY, QUARTERLY, ANNUAL
-  baseFee            Decimal   @default(15000.00) @map("base_fee") @db.Decimal(10, 2)
-  currency           String    @default("PKR")
-  status             String    @default("ACTIVE") // ACTIVE, PAYMENT_DUE, GRACE_PERIOD, SUSPENDED, MANUALLY_ACTIVATED, EXEMPT
-  currentPeriodStart DateTime  @default(now()) @map("current_period_start")
-  currentPeriodEnd   DateTime  @map("current_period_end")
-  gracePeriodDays    Int       @default(7) @map("grace_period_days")
-  showHistoryToSchool Boolean  @default(true) @map("show_history_to_school")
-  suspendedAt        DateTime? @map("suspended_at")
-  lastPaymentDate    DateTime? @map("last_payment_date")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid())
+  tenantId            String    @unique @map("tenant_id")
+  planName            String    @default("BASE") @map("plan_name") // BASE, STANDARD, FULL, ENTERPRISE
+  billingCycle        String    @default("MONTHLY") @map("billing_cycle") // MONTHLY, QUARTERLY, ANNUAL
+  baseFee             Decimal   @default(15000.00) @map("base_fee") @db.Decimal(10, 2)
+  currency            String    @default("PKR")
+  status              String    @default("ACTIVE") // ACTIVE, PAYMENT_DUE, GRACE_PERIOD, SUSPENDED, MANUALLY_ACTIVATED, EXEMPT
+  currentPeriodStart  DateTime  @default(now()) @map("current_period_start")
+  currentPeriodEnd    DateTime  @map("current_period_end")
+  gracePeriodDays     Int       @default(7) @map("grace_period_days")
+  showHistoryToSchool Boolean   @default(true) @map("show_history_to_school")
+  suspendedAt         DateTime? @map("suspended_at")
+  lastPaymentDate     DateTime? @map("last_payment_date")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoices ProviderInvoice[]
@@ -435,8 +445,8 @@ model ProviderInvoice {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscription TenantSubscription?     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  tenant       Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription TenantSubscription?      @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   proofs       PaymentProofSubmission[]
 
   @@map("provider_invoices")
@@ -503,16 +513,19 @@ model AcademicSession {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  classSubjects       ClassSubject[]
-  calendarEvents      AcademicCalendarEvent[]
-  subjectPassingRules SubjectPassingRule[]
-  examRuleAssignments ExamRuleAssignment[]
-  documentSequences   DocumentSequence[]
-  admittedStudents    Student[]               @relation("AdmissionSession")
-  studentEnrollments  StudentEnrollment[]
-  batchSourceSessions PromotionBatch[]        @relation("BatchSourceSession")
-  batchTargetSessions PromotionBatch[]        @relation("BatchTargetSession")
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classSubjects            ClassSubject[]
+  calendarEvents           AcademicCalendarEvent[]
+  subjectPassingRules      SubjectPassingRule[]
+  examRuleAssignments      ExamRuleAssignment[]
+  documentSequences        DocumentSequence[]
+  admittedStudents         Student[]                 @relation("AdmissionSession")
+  studentEnrollments       StudentEnrollment[]
+  batchSourceSessions      PromotionBatch[]          @relation("BatchSourceSession")
+  batchTargetSessions      PromotionBatch[]          @relation("BatchTargetSession")
+  schoolHolidays           SchoolHoliday[]
+  weeklyOffSettings        WeeklyOffSetting[]
+  studentAttendanceRecords StudentAttendanceRecord[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, name])
@@ -552,15 +565,16 @@ model SchoolClass {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  classCategory       ClassCategory?       @relation(fields: [classCategoryId], references: [id], onDelete: SetNull)
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  classCategory       ClassCategory?            @relation(fields: [classCategoryId], references: [id], onDelete: SetNull)
   sections            Section[]
   classSubjects       ClassSubject[]
   studentEnrollments  StudentEnrollment[]
   subjectPassingRules SubjectPassingRule[]
   examRuleAssignments ExamRuleAssignment[]
-  batchSourceClasses  PromotionBatch[]    @relation("BatchSourceClass")
-  batchTargetClasses  PromotionBatch[]    @relation("BatchTargetClass")
+  batchSourceClasses  PromotionBatch[]          @relation("BatchSourceClass")
+  batchTargetClasses  PromotionBatch[]          @relation("BatchTargetClass")
+  attendanceRecords   StudentAttendanceRecord[]
 
   @@unique([tenantId, code])
   @@index([tenantId, sortOrder])
@@ -579,11 +593,12 @@ model Section {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  schoolClass        SchoolClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
-  studentEnrollments StudentEnrollment[]
-  batchSourceSections PromotionBatch[]   @relation("BatchSourceSection")
-  batchTargetSections PromotionBatch[]   @relation("BatchTargetSection")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schoolClass         SchoolClass               @relation(fields: [classId], references: [id], onDelete: Cascade)
+  studentEnrollments  StudentEnrollment[]
+  batchSourceSections PromotionBatch[]          @relation("BatchSourceSection")
+  batchTargetSections PromotionBatch[]          @relation("BatchTargetSection")
+  attendanceRecords   StudentAttendanceRecord[]
 
   @@unique([tenantId, classId, code])
   @@index([tenantId, classId])
@@ -1014,47 +1029,49 @@ model CustomFieldOption {
 // ---------------------------------------------------------
 
 model Student {
-  id                    String    @id @default(uuid())
-  tenantId              String    @map("tenant_id")
-  admissionNo           String    @map("admission_no")
-  registrationNo        String?   @map("registration_no")
-  firstNameEn           String    @map("first_name_en")
-  lastNameEn            String?   @map("last_name_en")
-  fullNameUr            String?   @map("full_name_ur")
-  gender                String    @default("MALE") // MALE, FEMALE, OTHER
-  dob                   DateTime  @map("dob")
-  bloodGroup            String    @default("UNKNOWN") @map("blood_group") // A_POS, A_NEG, B_POS, B_NEG, O_POS, O_NEG, AB_POS, AB_NEG, UNKNOWN
-  religion              String?   @default("ISLAM")
-  nationality           String?   @default("PAKISTANI")
-  nationalId            String?   @map("national_id") // B-Form / CNIC / Passport No
-  photoUrl              String?   @map("photo_url")
-  admissionDate         DateTime  @default(now()) @map("admission_date")
-  admissionSessionId    String    @map("admission_session_id")
-  categoryId            String?   @map("category_id")
-  houseId               String?   @map("house_id")
-  primaryContactPhone   String?   @map("primary_contact_phone")
-  emergencyContactName  String?   @map("emergency_contact_name")
-  emergencyContactPhone String?   @map("emergency_contact_phone")
-  currentAddressEn      String?   @map("current_address_en")
-  currentAddressUr      String?   @map("current_address_ur")
-  permanentAddressEn    String?   @map("permanent_address_en")
-  city                  String?   @default("Karachi")
-  currentStatus         String    @default("ACTIVE") @map("current_status") // ACTIVE, INACTIVE, WITHDRAWN, TRANSFERRED, GRADUATED, LEFT, SUSPENDED
-  customFieldValues     Json?     @map("custom_field_values")
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  admissionNo           String   @map("admission_no")
+  registrationNo        String?  @map("registration_no")
+  firstNameEn           String   @map("first_name_en")
+  lastNameEn            String?  @map("last_name_en")
+  fullNameUr            String?  @map("full_name_ur")
+  gender                String   @default("MALE") // MALE, FEMALE, OTHER
+  dob                   DateTime @map("dob")
+  bloodGroup            String   @default("UNKNOWN") @map("blood_group") // A_POS, A_NEG, B_POS, B_NEG, O_POS, O_NEG, AB_POS, AB_NEG, UNKNOWN
+  religion              String?  @default("ISLAM")
+  nationality           String?  @default("PAKISTANI")
+  nationalId            String?  @map("national_id") // B-Form / CNIC / Passport No
+  photoUrl              String?  @map("photo_url")
+  admissionDate         DateTime @default(now()) @map("admission_date")
+  admissionSessionId    String   @map("admission_session_id")
+  categoryId            String?  @map("category_id")
+  houseId               String?  @map("house_id")
+  primaryContactPhone   String?  @map("primary_contact_phone")
+  emergencyContactName  String?  @map("emergency_contact_name")
+  emergencyContactPhone String?  @map("emergency_contact_phone")
+  currentAddressEn      String?  @map("current_address_en")
+  currentAddressUr      String?  @map("current_address_ur")
+  permanentAddressEn    String?  @map("permanent_address_en")
+  city                  String?  @default("Karachi")
+  currentStatus         String   @default("ACTIVE") @map("current_status") // ACTIVE, INACTIVE, WITHDRAWN, TRANSFERRED, GRADUATED, LEFT, SUSPENDED
+  customFieldValues     Json?    @map("custom_field_values")
   notes                 String?
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
-  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  admissionSession AcademicSession           @relation("AdmissionSession", fields: [admissionSessionId], references: [id], onDelete: Restrict)
-  category         StudentCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  house            House?                    @relation(fields: [houseId], references: [id], onDelete: SetNull)
-  guardians        StudentGuardianRelation[]
-  enrollments      StudentEnrollment[]
-  statusHistories  StudentStatusHistory[]
-  documents        StudentDocument[]
-  previousSchools  StudentPreviousSchool[]
-  promotionBatchItems PromotionBatchItem[]
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  admissionSession         AcademicSession           @relation("AdmissionSession", fields: [admissionSessionId], references: [id], onDelete: Restrict)
+  category                 StudentCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  house                    House?                    @relation(fields: [houseId], references: [id], onDelete: SetNull)
+  guardians                StudentGuardianRelation[]
+  enrollments              StudentEnrollment[]
+  statusHistories          StudentStatusHistory[]
+  documents                StudentDocument[]
+  previousSchools          StudentPreviousSchool[]
+  promotionBatchItems      PromotionBatchItem[]
+  studentAttendanceRecords StudentAttendanceRecord[]
+  attendanceAuditLogs      AttendanceAuditLog[]
 
   @@unique([tenantId, admissionNo])
   @@index([tenantId, currentStatus])
@@ -1133,13 +1150,14 @@ model StudentEnrollment {
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
-  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student         Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  academicSession AcademicSession     @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
-  schoolClass     SchoolClass         @relation(fields: [classId], references: [id], onDelete: Restrict)
-  section         Section             @relation(fields: [sectionId], references: [id], onDelete: Restrict)
-  promotedFrom    StudentEnrollment?  @relation("EnrollmentProgression", fields: [promotedFromEnrollmentId], references: [id], onDelete: SetNull)
-  promotedTo      StudentEnrollment[] @relation("EnrollmentProgression")
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student           Student                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  academicSession   AcademicSession           @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  schoolClass       SchoolClass               @relation(fields: [classId], references: [id], onDelete: Restrict)
+  section           Section                   @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  promotedFrom      StudentEnrollment?        @relation("EnrollmentProgression", fields: [promotedFromEnrollmentId], references: [id], onDelete: SetNull)
+  promotedTo        StudentEnrollment[]       @relation("EnrollmentProgression")
+  attendanceRecords StudentAttendanceRecord[]
 
   @@unique([tenantId, studentId, academicSessionId])
   @@index([tenantId, classId, sectionId])
@@ -1161,9 +1179,9 @@ model StudentStatusHistory {
   changedByUserId        String?   @map("changed_by_user_id")
   createdAt              DateTime  @default(now()) @map("created_at")
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  changedBy User?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, studentId])
   @@map("student_status_history")
@@ -1212,36 +1230,35 @@ model StudentPreviousSchool {
   @@map("student_previous_schools")
 }
 
-
 // ---------------------------------------------------------
 // 12. STUDENT MANAGEMENT: BULK PROMOTION & GRADUATION BATCHES
 // ---------------------------------------------------------
 
 model PromotionBatch {
-  id                 String               @id @default(uuid())
-  tenantId           String               @map("tenant_id")
-  batchNumber        String               @map("batch_number")
-  sourceSessionId    String               @map("source_session_id")
-  targetSessionId    String               @map("target_session_id")
-  sourceClassId      String               @map("source_class_id")
-  sourceSectionId    String?              @map("source_section_id")
-  targetClassId      String?              @map("target_class_id")
-  targetSectionId    String?              @map("target_section_id")
-  isGraduation       Boolean              @default(false) @map("is_graduation")
-  totalStudents      Int                  @default(0) @map("total_students")
-  promotedCount      Int                  @default(0) @map("promoted_count")
-  repeatedCount      Int                  @default(0) @map("repeated_count")
-  graduatedCount     Int                  @default(0) @map("graduated_count")
-  heldCount          Int                  @default(0) @map("held_count")
-  excludedCount      Int                  @default(0) @map("excluded_count")
-  isRolledBack       Boolean              @default(false) @map("is_rolled_back")
-  rolledBackAt       DateTime?            @map("rolled_back_at")
-  rolledBackByUserId String?              @map("rolled_back_by_user_id")
-  rollbackReason     String?              @map("rollback_reason")
-  processedByUserId  String?              @map("processed_by_user_id")
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  batchNumber        String    @map("batch_number")
+  sourceSessionId    String    @map("source_session_id")
+  targetSessionId    String    @map("target_session_id")
+  sourceClassId      String    @map("source_class_id")
+  sourceSectionId    String?   @map("source_section_id")
+  targetClassId      String?   @map("target_class_id")
+  targetSectionId    String?   @map("target_section_id")
+  isGraduation       Boolean   @default(false) @map("is_graduation")
+  totalStudents      Int       @default(0) @map("total_students")
+  promotedCount      Int       @default(0) @map("promoted_count")
+  repeatedCount      Int       @default(0) @map("repeated_count")
+  graduatedCount     Int       @default(0) @map("graduated_count")
+  heldCount          Int       @default(0) @map("held_count")
+  excludedCount      Int       @default(0) @map("excluded_count")
+  isRolledBack       Boolean   @default(false) @map("is_rolled_back")
+  rolledBackAt       DateTime? @map("rolled_back_at")
+  rolledBackByUserId String?   @map("rolled_back_by_user_id")
+  rollbackReason     String?   @map("rollback_reason")
+  processedByUserId  String?   @map("processed_by_user_id")
   notes              String?
-  createdAt          DateTime             @default(now()) @map("created_at")
-  updatedAt          DateTime             @updatedAt @map("updated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sourceSession AcademicSession      @relation("BatchSourceSession", fields: [sourceSessionId], references: [id], onDelete: Restrict)
@@ -1261,19 +1278,19 @@ model PromotionBatch {
 }
 
 model PromotionBatchItem {
-  id                    String         @id @default(uuid())
-  tenantId              String         @map("tenant_id")
-  batchId               String         @map("batch_id")
-  studentId             String         @map("student_id")
-  decision              String         // PROMOTE, REPEAT, GRADUATE, HOLD, EXCLUDE
-  sourceEnrollmentId    String?        @map("source_enrollment_id")
-  targetEnrollmentId    String?        @map("target_enrollment_id")
-  previousStudentStatus String         @map("previous_student_status")
-  newStudentStatus      String         @map("new_student_status")
-  targetClassId         String?        @map("target_class_id")
-  targetSectionId       String?        @map("target_section_id")
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  batchId               String   @map("batch_id")
+  studentId             String   @map("student_id")
+  decision              String // PROMOTE, REPEAT, GRADUATE, HOLD, EXCLUDE
+  sourceEnrollmentId    String?  @map("source_enrollment_id")
+  targetEnrollmentId    String?  @map("target_enrollment_id")
+  previousStudentStatus String   @map("previous_student_status")
+  newStudentStatus      String   @map("new_student_status")
+  targetClassId         String?  @map("target_class_id")
+  targetSectionId       String?  @map("target_section_id")
   remarks               String?
-  createdAt             DateTime       @default(now()) @map("created_at")
+  createdAt             DateTime @default(now()) @map("created_at")
 
   tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   batch   PromotionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
@@ -1282,4 +1299,141 @@ model PromotionBatchItem {
   @@index([tenantId, batchId])
   @@index([tenantId, studentId])
   @@map("promotion_batch_items")
+}
+
+// ---------------------------------------------------------
+// 13. ATTENDANCE MANAGEMENT (PHASE 1: DAILY ROSTER & AUDIT)
+// ---------------------------------------------------------
+
+model StudentAttendanceRecord {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  studentId         String   @map("student_id")
+  enrollmentId      String   @map("enrollment_id")
+  academicSessionId String   @map("academic_session_id")
+  classId           String   @map("class_id")
+  sectionId         String   @map("section_id")
+  attendanceDate    DateTime @map("attendance_date") // Normalized UTC midnight
+  status            String   @default("PRESENT") // PRESENT, ABSENT, LATE, LEAVE, HALF_DAY, EXCUSED
+  remarks           String?
+  recordedByUserId  String?  @map("recorded_by_user_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student         Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  enrollment      StudentEnrollment    @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession      @relation(fields: [academicSessionId], references: [id], onDelete: Restrict)
+  schoolClass     SchoolClass          @relation(fields: [classId], references: [id], onDelete: Restrict)
+  section         Section              @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  recordedBy      User?                @relation("AttendanceRecorder", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  auditLogs       AttendanceAuditLog[]
+
+  @@unique([tenantId, studentId, attendanceDate])
+  @@index([tenantId, attendanceDate])
+  @@index([tenantId, classId, sectionId, attendanceDate])
+  @@index([tenantId, studentId])
+  @@index([tenantId, status])
+  @@map("student_attendance_records")
+}
+
+model AttendanceAuditLog {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  attendanceRecordId String   @map("attendance_record_id")
+  studentId          String   @map("student_id")
+  attendanceDate     DateTime @map("attendance_date")
+  previousStatus     String   @map("previous_status")
+  newStatus          String   @map("new_status")
+  previousRemarks    String?  @map("previous_remarks")
+  newRemarks         String?  @map("new_remarks")
+  correctionReason   String   @map("correction_reason")
+  correctedByUserId  String?  @map("corrected_by_user_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attendanceRecord StudentAttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  student          Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  correctedBy      User?                   @relation("AttendanceCorrector", fields: [correctedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, attendanceRecordId])
+  @@index([tenantId, studentId])
+  @@map("attendance_audit_logs")
+}
+
+// ---------------------------------------------------------
+// 14. CENTRAL SCHOOL CALENDAR & HOLIDAY MANAGEMENT
+// ---------------------------------------------------------
+
+model SchoolHoliday {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  title              String
+  holidayType        String    @default("PUBLIC_HOLIDAY") @map("holiday_type") // PUBLIC_HOLIDAY, NATIONAL_HOLIDAY, RELIGIOUS_HOLIDAY, VACATION, EMERGENCY_CLOSURE, WEEKLY_OFF, CUSTOM_NON_WORKING
+  startDate          DateTime  @map("start_date") // Normalized UTC midnight
+  endDate            DateTime  @map("end_date") // Normalized UTC midnight
+  scope              String    @default("WHOLE_SCHOOL") // WHOLE_SCHOOL, ACADEMIC_SESSION, CLASS_SPECIFIC
+  academicSessionId  String?   @map("academic_session_id")
+  targetClassIds     String[]  @default([]) @map("target_class_ids") // For CLASS_SPECIFIC scope
+  status             String    @default("ACTIVE") // ACTIVE, CANCELLED
+  description        String?
+  cancellationReason String?   @map("cancellation_reason")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  createdByUserId    String?   @map("created_by_user_id")
+  updatedByUserId    String?   @map("updated_by_user_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession?  @relation(fields: [academicSessionId], references: [id], onDelete: SetNull)
+  createdBy       User?             @relation("HolidayCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  cancelledBy     User?             @relation("HolidayCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  auditLogs       HolidayAuditLog[]
+
+  @@index([tenantId, startDate, endDate])
+  @@index([tenantId, status])
+  @@index([tenantId, scope])
+  @@index([tenantId, academicSessionId])
+  @@map("school_holidays")
+}
+
+model WeeklyOffSetting {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  academicSessionId String?  @map("academic_session_id")
+  daysOfWeek        Int[]    @default([0]) @map("days_of_week") // 0=Sunday, 6=Saturday
+  isActive          Boolean  @default(true) @map("is_active")
+  description       String?
+  updatedByUserId   String?  @map("updated_by_user_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  academicSession AcademicSession? @relation(fields: [academicSessionId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, academicSessionId])
+  @@index([tenantId, isActive])
+  @@map("weekly_off_settings")
+}
+
+model HolidayAuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  holidayId     String?  @map("holiday_id")
+  action        String // CREATED, UPDATED, CANCELLED, ATTENDANCE_OVERRIDE, WEEKLY_OFF_UPDATED
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+  reason        String
+  userId        String?  @map("user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  holiday SchoolHoliday? @relation(fields: [holidayId], references: [id], onDelete: SetNull)
+  user    User?          @relation("HolidayAuditor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, holidayId])
+  @@index([tenantId, action])
+  @@index([tenantId, createdAt])
+  @@map("holiday_audit_logs")
 }

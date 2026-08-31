@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Building2,
   Calendar,
+  CalendarOff,
   Layers,
   GraduationCap,
   LayoutGrid,
@@ -31,6 +32,13 @@ const CONFIG_CARDS = [
     description: 'Academic years/terms, session locking, date ranges, and active current session control.',
     href: '/admin/settings/academic-years',
     icon: <Calendar className="w-6 h-6 text-indigo-600" />,
+    badge: 'Sessions',
+  },
+  {
+    title: 'Holidays & School Calendar',
+    description: 'Central non-working days, recurring weekly offs, public holidays, and date-range vacation periods.',
+    href: '/admin/settings/holidays',
+    icon: <CalendarOff className="w-6 h-6 text-rose-600" />,
     badge: 'Calendar',
   },
   {

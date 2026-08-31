@@ -5,6 +5,7 @@ import {
   HelpCircle,
   Users,
   Calendar,
+  CalendarOff,
   DollarSign,
   Award,
   BookOpen,
@@ -107,6 +108,7 @@ export const MODULE_NAV_CONFIGS: Record<string, ModuleNavConfig> = {
     items: [
       { id: 'students', label: 'Student Attendance', labelUr: 'طلباء حاضری', href: '/admin/attendance', icon: UserCheck },
       { id: 'employees', label: 'Employee Attendance', labelUr: 'عملہ حاضری', href: '/admin/attendance/employees', icon: Users },
+      { id: 'holidays', label: 'School Calendar', labelUr: 'تعطیلات و کیلنڈر', href: '/admin/settings/holidays', icon: Calendar },
       { id: 'corrections', label: 'Corrections & History', labelUr: 'حاضری درستگی و تاریخ', href: '/admin/attendance/corrections', icon: RefreshCw },
       { id: 'audit', label: 'Attendance Audit', labelUr: 'حاضری آڈٹ', href: '/admin/attendance/audit', icon: History, isAudit: true },
       { id: 'reports', label: 'Reports & Analytics', labelUr: 'رپورٹس و تجزیات', href: '/admin/attendance/reports', icon: BarChart3, isReports: true },
@@ -225,6 +227,7 @@ export const MODULE_NAV_CONFIGS: Record<string, ModuleNavConfig> = {
       { id: 'overview', label: 'Hub', labelUr: 'مرکز', href: '/admin/settings', icon: Sliders },
       { id: 'profile', label: 'Profile', labelUr: 'پروفائل', href: '/admin/settings/profile', icon: Building },
       { id: 'sessions', label: 'Sessions', labelUr: 'سیشنز', href: '/admin/settings/academic-years', icon: Calendar },
+      { id: 'holidays', label: 'Holidays & Calendar', labelUr: 'تعطیلات و کیلنڈر', href: '/admin/settings/holidays', icon: Calendar },
       { id: 'categories', label: 'Categories', labelUr: 'کیٹیگریز', href: '/admin/settings/class-categories', icon: Layers },
       { id: 'classes', label: 'Classes', labelUr: 'کلاسز', href: '/admin/settings/classes', icon: GraduationCap },
       { id: 'sections', label: 'Sections', labelUr: 'سیکشنز', href: '/admin/settings/sections', icon: LayoutGrid },
