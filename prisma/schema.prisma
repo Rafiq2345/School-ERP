@@ -86,6 +86,11 @@ model Tenant {
   shiftAuditLogs            ShiftAuditLog[]
   workSchedules             WorkSchedule[]
   scheduleAssignments       EmployeeScheduleAssignment[]
+  leavePolicies             LeavePolicy[]
+  leavePolicyAssignments    LeavePolicyAssignment[]
+  leaveEntitlements         EmployeeLeaveEntitlement[]
+  leaveLedgerTransactions   LeaveLedgerTransaction[]
+  leaveAuditLogs            LeaveAuditLog[]
 
   @@map("tenants")
 }
@@ -738,7 +743,8 @@ model Department {
   designations Designation[]
   employees    Employee[]
   shiftAssignments    EmployeeShiftAssignment[]
-  scheduleAssignments EmployeeScheduleAssignment[]
+  scheduleAssignments    EmployeeScheduleAssignment[]
+  leavePolicyAssignments LeavePolicyAssignment[]
 
   @@unique([tenantId, code])
   @@map("departments")
@@ -760,7 +766,8 @@ model Designation {
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   employees  Employee[]
   shiftAssignments    EmployeeShiftAssignment[]
-  scheduleAssignments EmployeeScheduleAssignment[]
+  scheduleAssignments    EmployeeScheduleAssignment[]
+  leavePolicyAssignments LeavePolicyAssignment[]
 
   @@unique([tenantId, code])
   @@index([tenantId, departmentId])
@@ -799,31 +806,45 @@ model EmploymentType {
 
   tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employees           Employee[]
-  scheduleAssignments EmployeeScheduleAssignment[]
+  scheduleAssignments    EmployeeScheduleAssignment[]
+  leavePolicyAssignments LeavePolicyAssignment[]
 
   @@unique([tenantId, code])
   @@map("employment_types")
 }
 
 model LeaveType {
-  id                  String   @id @default(uuid())
-  tenantId            String   @map("tenant_id")
-  name                String
-  code                String
-  isPaid              Boolean  @default(true) @map("is_paid")
-  annualLimit         Int?     @map("annual_limit")
-  carryForwardAllowed Boolean  @default(false) @map("carry_forward_allowed")
-  carryForwardLimit   Int?     @map("carry_forward_limit")
-  requiresApproval    Boolean  @default(true) @map("requires_approval")
-  description         String?
-  isActive            Boolean  @default(true) @map("is_active")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id                      String   @id @default(uuid())
+  tenantId                String   @map("tenant_id")
+  name                    String
+  code                    String
+  description             String?
+  isPaid                  Boolean  @default(true) @map("is_paid")
+  isUnlimited             Boolean  @default(false) @map("is_unlimited")
+  annualLimit             Int?     @map("annual_limit")
+  defaultAllocationMethod String   @default("ANNUAL_UPFRONT") @map("default_allocation_method") // ANNUAL_UPFRONT, MONTHLY_ACCRUAL, JOINING_DATE_BASED, CONFIRMATION_BASED, PRORATED
+  minLeaveUnit            Decimal  @default(0.50) @map("min_leave_unit") @db.Decimal(3, 2)
+  allowFullDay            Boolean  @default(true) @map("allow_full_day")
+  allowHalfDay            Boolean  @default(true) @map("allow_half_day")
+  allowShiftWise          Boolean  @default(true) @map("allow_shift_wise")
+  allowHourly             Boolean  @default(false) @map("allow_hourly")
+  attachmentRequired      Boolean  @default(false) @map("attachment_required")
+  attachmentThresholdDays Int      @default(0) @map("attachment_threshold_days")
+  carryForwardAllowed     Boolean  @default(false) @map("carry_forward_allowed")
+  carryForwardLimit       Int?     @map("carry_forward_limit")
+  requiresApproval        Boolean  @default(true) @map("requires_approval")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
 
   tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employeeAttendanceRecords EmployeeAttendanceRecord[]
+  policyRules               LeavePolicyRule[]
+  entitlements              EmployeeLeaveEntitlement[]
+  ledgerTransactions        LeaveLedgerTransaction[]
 
   @@unique([tenantId, code])
+  @@index([tenantId, isActive])
   @@map("leave_types")
 }
 
@@ -1551,6 +1572,9 @@ model Employee {
   joiningDate          DateTime  @default(now()) @map("joining_date")
   currentStatus        String    @default("ACTIVE") @map("current_status") // ACTIVE, ON_LEAVE, PROBATION, SUSPENDED, RESIGNED, TERMINATED, RETIRED
   standardWorkingHours Decimal?  @default(8.00) @map("standard_working_hours") @db.Decimal(4, 2)
+  confirmationStatus   String    @default("CONFIRMED") @map("confirmation_status") // PROBATION, EXTENDED_PROBATION, CONFIRMED
+  probationEndDate     DateTime? @map("probation_end_date")
+  confirmationDate     DateTime? @map("confirmation_date")
   customFields         Json?     @map("custom_fields")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
@@ -1565,7 +1589,10 @@ model Employee {
   attendanceRecords EmployeeAttendanceRecord[]
   auditLogs         EmployeeAttendanceAuditLog[]
   shiftAssignments    EmployeeShiftAssignment[]
-  scheduleAssignments EmployeeScheduleAssignment[]
+  scheduleAssignments     EmployeeScheduleAssignment[]
+  leavePolicyAssignments  LeavePolicyAssignment[]
+  leaveEntitlements       EmployeeLeaveEntitlement[]
+  leaveLedgerTransactions LeaveLedgerTransaction[]
 
   @@unique([tenantId, employeeNo])
   @@index([tenantId, currentStatus])
@@ -1720,4 +1747,195 @@ model EmployeeScheduleAssignment {
   @@index([tenantId, scheduleId])
   @@index([tenantId, isActive])
   @@map("employee_schedule_assignments")
+}
+
+// ---------------------------------------------------------
+// 17. LEAVE MANAGEMENT FOUNDATION (PHASE 1)
+// ---------------------------------------------------------
+
+model LeavePolicy {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  name          String
+  code          String
+  description   String?
+  isDefault     Boolean   @default(false) @map("is_default")
+  status        String    @default("ACTIVE") // ACTIVE, INACTIVE, DRAFT, ARCHIVED
+  effectiveFrom DateTime  @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant             Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rules              LeavePolicyRule[]
+  assignments        LeavePolicyAssignment[]
+  entitlements       EmployeeLeaveEntitlement[]
+  ledgerTransactions LeaveLedgerTransaction[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, isDefault])
+  @@map("leave_policies")
+}
+
+model LeavePolicyRule {
+  id                   String   @id @default(uuid())
+  leavePolicyId        String   @map("leave_policy_id")
+  leaveTypeId          String   @map("leave_type_id")
+  annualEntitlement    Decimal  @default(0.00) @map("annual_entitlement") @db.Decimal(5, 2)
+  isPaid               Boolean  @default(true) @map("is_paid")
+  isUnlimited          Boolean  @default(false) @map("is_unlimited")
+  allocationMethod     String   @default("ANNUAL_UPFRONT") @map("allocation_method") // ANNUAL_UPFRONT, MONTHLY_ACCRUAL, JOINING_DATE_BASED, CONFIRMATION_BASED, PRORATED
+  minLeaveUnit         Decimal  @default(0.50) @map("min_leave_unit") @db.Decimal(3, 2)
+  allowHalfDay         Boolean  @default(true) @map("allow_half_day")
+  allowShiftWise       Boolean  @default(true) @map("allow_shift_wise")
+  allowHourly          Boolean  @default(false) @map("allow_hourly")
+  allowNegativeBalance Boolean  @default(false) @map("allow_negative_balance")
+  maxNegativeBalance   Decimal  @default(0.00) @map("max_negative_balance") @db.Decimal(5, 2)
+  maxConsecutiveDays   Int?     @map("max_consecutive_days")
+  
+  // Probation & Confirmation Configuration
+  probationTreatment   String   @default("ALLOWED") @map("probation_treatment") // ALLOWED, NOT_ALLOWED, LIMITED_ENTITLEMENT, UNPAID_ONLY
+  probationEntitlement Decimal? @map("probation_entitlement") @db.Decimal(5, 2)
+  entitlementRelease   String   @default("ON_JOINING") @map("entitlement_release") // ON_JOINING, MONTHLY_DURING_PROBATION, ON_CONFIRMATION, PRORATED_AFTER_CONFIRMATION
+
+  // Year-End Readiness Configuration (For Future Execution)
+  yearEndAction            String   @default("EXPIRE") @map("year_end_action") // EXPIRE, CARRY_FORWARD, ENCASH, MIXED
+  maxCarryForwardDays      Decimal? @map("max_carry_forward_days") @db.Decimal(5, 2)
+  carryForwardExpiryMonths Int?     @map("carry_forward_expiry_months")
+  maxEncashableDays        Decimal? @map("max_encashable_days") @db.Decimal(5, 2)
+  minBalanceForEncashment  Decimal? @map("min_balance_for_encashment") @db.Decimal(5, 2)
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leavePolicy LeavePolicy @relation(fields: [leavePolicyId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([leavePolicyId, leaveTypeId])
+  @@index([leavePolicyId])
+  @@index([leaveTypeId])
+  @@map("leave_policy_rules")
+}
+
+model LeavePolicyAssignment {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  leavePolicyId    String    @map("leave_policy_id")
+  assignmentType   String    @default("EMPLOYEE") @map("assignment_type") // EMPLOYEE, DEPARTMENT, DESIGNATION, EMPLOYMENT_TYPE, INSTITUTIONAL_DEFAULT
+  employeeId       String?   @map("employee_id")
+  departmentId     String?   @map("department_id")
+  designationId    String?   @map("designation_id")
+  employmentTypeId String?   @map("employment_type_id")
+  isOverride       Boolean   @default(false) @map("is_override")
+  effectiveFrom    DateTime  @map("effective_from")
+  effectiveTo      DateTime? @map("effective_to")
+  reason           String?
+  isActive         Boolean   @default(true) @map("is_active")
+  assignedByUserId String?   @map("assigned_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leavePolicy    LeavePolicy     @relation(fields: [leavePolicyId], references: [id], onDelete: Cascade)
+  employee       Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  department     Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  designation    Designation?    @relation(fields: [designationId], references: [id], onDelete: Cascade)
+  employmentType EmploymentType? @relation(fields: [employmentTypeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, employeeId, effectiveFrom])
+  @@index([tenantId, departmentId, effectiveFrom])
+  @@index([tenantId, designationId, effectiveFrom])
+  @@index([tenantId, employmentTypeId, effectiveFrom])
+  @@index([tenantId, leavePolicyId])
+  @@index([tenantId, isActive])
+  @@map("leave_policy_assignments")
+}
+
+model EmployeeLeaveEntitlement {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  employeeId         String   @map("employee_id")
+  leaveTypeId        String   @map("leave_type_id")
+  leavePolicyId      String   @map("leave_policy_id")
+  leaveYear          Int      @map("leave_year") // e.g. 2026
+  allocationMethod   String   @default("ANNUAL_UPFRONT") @map("allocation_method")
+  openingBalance     Decimal  @default(0.00) @map("opening_balance") @db.Decimal(5, 2)
+  allocatedDays      Decimal  @default(0.00) @map("allocated_days") @db.Decimal(5, 2)
+  carriedForwardDays Decimal  @default(0.00) @map("carried_forward_days") @db.Decimal(5, 2)
+  adjustedDays       Decimal  @default(0.00) @map("adjusted_days") @db.Decimal(5, 2)
+  usedDays           Decimal  @default(0.00) @map("used_days") @db.Decimal(5, 2)
+  encashedDays       Decimal  @default(0.00) @map("encashed_days") @db.Decimal(5, 2)
+  expiredDays        Decimal  @default(0.00) @map("expired_days") @db.Decimal(5, 2)
+  availableBalance   Decimal  @default(0.00) @map("available_balance") @db.Decimal(5, 2)
+  hasOverride        Boolean  @default(false) @map("has_override")
+  status             String   @default("ACTIVE") // ACTIVE, CLOSED, ADJUSTED
+  lastCalculatedAt   DateTime @default(now()) @map("last_calculated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee           Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType          LeaveType                @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  leavePolicy        LeavePolicy              @relation(fields: [leavePolicyId], references: [id], onDelete: Cascade)
+  ledgerTransactions LeaveLedgerTransaction[]
+
+  @@unique([tenantId, employeeId, leaveTypeId, leaveYear])
+  @@index([tenantId, leaveYear])
+  @@index([tenantId, employeeId])
+  @@index([tenantId, leaveTypeId])
+  @@map("employee_leave_entitlements")
+}
+
+model LeaveLedgerTransaction {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  employeeId     String   @map("employee_id")
+  leaveTypeId    String   @map("leave_type_id")
+  leavePolicyId  String?  @map("leave_policy_id")
+  entitlementId  String?  @map("entitlement_id")
+  leaveYear      Int      @map("leave_year")
+  transactionType String  @map("transaction_type") // OPENING_BALANCE, ANNUAL_ALLOCATION, MONTHLY_ACCRUAL, MANUAL_ADJUSTMENT_ADD, MANUAL_ADJUSTMENT_SUBTRACT, CARRY_FORWARD, LEAVE_USAGE, LEAVE_CANCELLATION, ENCASHMENT, EXPIRY, PAYROLL_ADJUSTMENT
+  amount         Decimal  @map("amount") @db.Decimal(5, 2)
+  balanceBefore  Decimal  @map("balance_before") @db.Decimal(5, 2)
+  balanceAfter   Decimal  @map("balance_after") @db.Decimal(5, 2)
+  effectiveDate  DateTime @map("effective_date")
+  reason         String?
+  referenceType  String?  @map("reference_type") // MANUAL_ADJUSTMENT, ANNUAL_BATCH, LEAVE_APPLICATION, PROBATION_RELEASE
+  referenceId    String?  @map("reference_id")
+  shiftId        String?  @map("shift_id")
+  createdByUserId String? @map("created_by_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee    Employee                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType                 @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  leavePolicy LeavePolicy?              @relation(fields: [leavePolicyId], references: [id], onDelete: SetNull)
+  entitlement EmployeeLeaveEntitlement? @relation(fields: [entitlementId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, employeeId, leaveYear])
+  @@index([tenantId, employeeId, leaveTypeId])
+  @@index([tenantId, transactionType])
+  @@index([tenantId, effectiveDate])
+  @@map("leave_ledger_transactions")
+}
+
+model LeaveAuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  entityType    String   @map("entity_type") // LEAVE_TYPE, LEAVE_POLICY, POLICY_ASSIGNMENT, LEAVE_ENTITLEMENT, LEAVE_LEDGER
+  entityId      String   @map("entity_id")
+  action        String   // CREATED, UPDATED, DEACTIVATED, ASSIGNED, ALLOCATED, ADJUSTED, OVERRIDE_SET
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+  reason        String?
+  userId        String?  @map("user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, action])
+  @@index([tenantId, createdAt])
+  @@map("leave_audit_logs")
 }
