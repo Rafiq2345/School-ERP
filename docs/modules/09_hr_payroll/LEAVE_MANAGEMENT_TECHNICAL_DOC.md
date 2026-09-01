@@ -1,8 +1,8 @@
-# Module 09: Leave Management & Entitlement Ledger — Technical Architecture & Audit Specification (Phase 1 Foundation)
+# Module 09: Leave Management & Entitlement Ledger — Technical Architecture & Audit Specification
 
 > [!NOTE]
 > **Production Readiness & Audit Baseline**:
-> This document details the database architecture, policy precedence engine, probation entitlement calculation, transactional balance ledger, multi-shift readiness, year-end readiness, and audit capabilities for **Leave Management Phase 1**.
+> This document details the database architecture, policy precedence engine, probation entitlement calculation, transactional balance ledger, multi-shift duty leave resolution, employee leave application and validation engine, **Dynamic Multi-Level Approval Workflow Architecture**, **Final Approval Entitlement Ledger Deduction**, and **Attendance Auto-Integration (`ON_LEAVE`)** for **Leave Management Phase 1 & Phase 2 (Steps 1, 2 & 3)**.
 
 ---
 
@@ -10,28 +10,69 @@
 
 ```mermaid
 flowchart TD
-    subgraph Configuration Layer
-        LT[Leave Types Master\n(Paid/Unpaid, Units, Docs)]
-        LP[Leave Policies & Rules\n(Effective-Dated, Multi-Rule)]
-        PCE[Probation & Confirmation Engine\n(Live HR Status Validation)]
+    subgraph Configuration Layer (Phase 1)
+        LT[Leave Types Master
+(Paid/Unpaid, Units, Docs)]
+        LP[Leave Policies & Rules
+(Effective-Dated, Multi-Rule)]
+        PCE[Probation & Confirmation Engine
+(Live HR Status Validation)]
     end
 
-    subgraph Assignment & Precedence Hierarchy
+    subgraph Assignment & Precedence Hierarchy (Phase 1)
         LPA[Policy Assignments]
-        PR[6-Level Precedence Engine\n(Override > Direct > Dept > Desig > EmpType > Default)]
+        PR[6-Level Precedence Engine
+(Override > Direct > Dept > Desig > EmpType > Default)]
     end
 
-    subgraph Transactional Entitlement Ledger
-        Wizard[Annual Bulk Allocation Wizard\n(Duplicate Protection & Recalc Flags)]
+    subgraph Entitlement Ledger & Adjustments (Phase 1 & Phase 2 Step 3)
+        Wizard[Annual Bulk Allocation Wizard
+(Duplicate Protection & Recalc Flags)]
         ELE[Employee Leave Entitlement Summary]
-        LLT[Double-Entry Ledger Transactions\n(Continuous Before/After Chain)]
-        MBA[Manual Balance Adjustments\n(Policy Negative Guard & Mandatory Reason)]
+        LLT[Double-Entry Ledger Transactions
+(LEAVE_USAGE Deduction on Final Approval)]
+        MBA[Manual Balance Adjustments
+(Policy Negative Guard & Mandatory Reason)]
     end
 
-    subgraph Governance & Architectural Readiness
-        Audit[Enriched Audit Trail\n(Actor Attribution & Human Diffs)]
-        MultiShift[Multi-Shift Readiness\n(Shift/Hourly Granularity)]
-        YearEnd[Year-End Rollover Readiness\n(Carry-Forward/Encashment Rules)]
+    subgraph Applications & Validation Engine (Phase 2 Step 1)
+        LAF[Leave Application Form
+(Employee Selection & Scope Selector)]
+        WS[Work Schedule Service
+(Multi-Shift Duty Resolution)]
+        CAL[Central School Calendar
+(Holiday & Weekly-Off Exclusions)]
+        LCE[Leave Calculation Engine
+(Working Units, Live Balance, Overlap & Attachment Validation)]
+        LAPP[Leave Applications DB
+(Drafts, Pending, Snapshots, Sequential LR-YYYY-XXXXXX)]
+    end
+
+    subgraph Dynamic Multi-Level Approval Workflows (Phase 2 Step 2)
+        LAW[Approval Workflows Master
+(Ordered Steps & Roles/Designations)]
+        LAWR[Workflow Precedence Engine
+(Override > Direct > Dept > Desig > EmpType > LeaveType > Default)]
+        LAI[Approval Instances & Stepper
+(Immutable Workflow Snapshot, Pending Level 1)]
+        INBOX[Approval Inbox
+(Pending for Me / All Pending & Quick Actions)]
+        AA[Approver Actions Engine
+(Approve, Reject, Send Back, Clarification Inquiries)]
+    end
+
+    subgraph Attendance & Shift Integration (Phase 2 Step 3)
+        ATT[Daily Employee Attendance Roster
+(Morning Shift ON_LEAVE / Afternoon Shift PRESENT)]
+        REG[Monthly Attendance Register
+(LV Badge on Day, 0 Absences, Exact 0.5d / 1.0d Quantity)]
+        AAT[Employee Attendance Audit Log
+(Correction / System Linkage Audit)]
+    end
+
+    subgraph Governance & Audit Trail
+        Audit[Enriched Audit Trail
+(Actor Attribution, Diffs & History Timeline)]
     end
 
     LT --> LP
@@ -43,14 +84,31 @@ flowchart TD
     MBA --> ELE & LLT
     LLT --> Audit
 
-    LT & LP -.-> MultiShift & YearEnd
+    LAF --> LCE
+    WS --> LCE
+    CAL --> LCE
+    ELE --> LCE
+    LCE --> LAPP
+    
+    LAPP --> LAWR --> LAI
+    LAW --> LAWR
+    LAI --> INBOX --> AA
+    AA --> LAI
+    AA --> Audit
+    LAPP --> Audit
+
+    AA -- Final Approval --> LLT
+    AA -- Final Approval --> ATT
+    ATT --> REG
+    ATT --> AAT
+    AAT --> Audit
 ```
 
 ---
 
-## 2. Phase 1 Scope Verification Matrices
+## 2. Implemented Scope Verification Matrices
 
-### A. IMPLEMENTED & FULLY VERIFIED (Phase 1)
+### A. IMPLEMENTED & FULLY VERIFIED (Phase 1 & Phase 2 Complete)
 
 | Sub-System | Verification Details | Route / Entry Point |
 | :--- | :--- | :--- |
@@ -59,44 +117,62 @@ flowchart TD
 | **Probation & Confirmation Rules** | Live HR confirmation status evaluation (`PROBATION`, `EXTENDED_PROBATION`, `CONFIRMED`). Strict business rule: date passing alone does NOT release confirmation-based entitlement. | `/admin/hr/leaves/policies` |
 | **Policy Assignments** | Bulk assignment by Department, Designation, Employment Type, or Individual Employee. 6-level precedence resolver with live impact preview. | `/admin/hr/leaves/assignments` |
 | **Annual Entitlement Allocation** | Multi-step wizard with status flags (`READY`, `ALREADY_ALLOCATED`, `NEEDS_RECALCULATION`, `HAS_OVERRIDE`), duplicate allocation prevention, and safe recalculations. | `/admin/hr/leaves/entitlements` |
-| **Transactional Entitlement Ledger** | Double-entry balance calculation where $\text{Available} = \text{Opening} + \text{Allocated} + \text{CarriedForward} + \text{Adjusted} - \text{Used} - \text{Encashed} - \text{Expired}$. Exact continuity $N_{\text{after}} = (N+1)_{\text{before}}$. | `/admin/hr/leaves/employees/[id]` |
+| **Transactional Entitlement Ledger** | Double-entry balance calculation where $\\text{Available} = \\text{Opening} + \\text{Allocated} + \\text{CarriedForward} + \\text{Adjusted} - \\text{Used} - \\text{Encashed} - \\text{Expired}$. Exact continuity $N_{\\text{after}} = (N+1)_{\\text{before}}$. | `/admin/hr/leaves/employees/[id]` |
 | **Negative Balance Protection** | Policy-governed restriction blocking adjustments or usage resulting in negative balance unless explicitly allowed up to `maxNegativeBalance`. Unlimited unpaid leaves handled gracefully. | Server-side validation |
 | **Manual Balance Adjustments** | Positive (`ADD`) and negative (`SUBTRACT`) adjustments requiring mandatory justification reason server-side, live projected balance preview, actor attribution, and ledger posting. | `/admin/hr/leaves/employees/[id]` |
-| **Governance & Audit Trail** | Immutable log tracking actor attribution (Username/Name, Role, System Engine, Legacy fallback), human-readable change summaries (e.g. `Casual Leave: 10d → 12d (+2d)`), diff cards, and search filters. | `/admin/hr/leaves/audit` |
+| **Employee Leave Applications** | Self-service & admin application creation across Full Day, Half Day (First/Second Half), Multi-Shift Duty Segments, and Hourly Short Leave. Includes draft saving, unique request numbers (`LR-YYYY-XXXXXX`), and cancellation. | `/admin/hr/leaves/applications`, `/new`, `/[id]` |
+| **Multi-Shift Duty Integration** | Dynamic resolution of employee's actual scheduled shifts via `WorkScheduleService` (Single, Double, Triple shift duties). Relationally stores selected shifts and calculates fractional day quantities ($0.5\\text{d}$, $0.33\\text{d}$). | `/admin/hr/leaves/applications/new` |
+| **Hourly / Short Leave Engine** | Start/End time duration calculation within scheduled shift duty hours, standard workday fraction calculation, and validation preventing $start \\ge end$. | Server-side calculation engine |
+| **Live Balance & Overlap Engine** | Live effective requestable balance calculation (subtracting active pending requests without double-counting). Comprehensive overlap detection across dates, half-days, specific shifts, and hourly time ranges. | Server-side calculation engine |
+| **Document Attachment Enforcement** | Enforces mandatory document/medical certificate upload when requested leave duration exceeds policy threshold. | Server-side & form validation |
+| **Dynamic Approval Workflows Master** | Multi-workflow configuration (`LeaveApprovalWorkflow`) with ordered sequential steps (`LeaveApprovalWorkflowStep`), approver sources (`ROLE`, `USER`, `DESIGNATION`, `DEPARTMENT_HEAD`), auto-approval windows, and applicability rules. | `/admin/hr/leaves/workflows` |
+| **Workflow Precedence Resolution** | Dynamic resolution evaluating 6-level hierarchy: Individual Override > Direct Employee > Department > Designation > Employment Type > Leave Type Specific > Institutional Default. | `LeaveWorkflowService.resolveWorkflowForApplication` |
+| **Immutable Workflow Snapshotting** | At application submission, an immutable `LeaveRequestApprovalInstance` is generated with frozen workflow metadata and active steps. Future master edits do not alter historical requests. | `LeaveApprovalService.initializeApprovalInstance` |
+| **Step Execution State Machine** | Multi-tier ordered progression: Step 1 initialized as `PENDING` while Step 2+ set to `WAITING`. Step 1 approve automatically transitions Step 2 to `PENDING`. Final step approval transitions request to `APPROVED`. | `LeaveApprovalService.processApproverAction` |
+| **Comprehensive Approver Actions** | Supports `APPROVE`, `REJECT` (mandatory remarks; skips remaining steps and halts workflow), `SEND_BACK` (returns for applicant edit), `REQUEST_CLARIFICATION` (inquiry question recorded and answered by applicant). | `/admin/hr/leaves/applications/[id]/approve` |
+| **Approval Inbox** | Unified review dashboard (`/admin/hr/leaves/approvals`) with "Actionable by Me" vs "All Pending" tabs, department/type/search filters, and quick action dialog modal. | `/admin/hr/leaves/approvals` |
+| **Final Approval Ledger Deduction** | Atomically creates exactly ONE immutable `LEAVE_USAGE` ledger transaction on Step 3 Final Approval. Guaranteed idempotency prevents double deductions upon replay. | `LeaveEntitlementService.recordLeaveUsageInTx` |
+| **Attendance Auto-Integration** | Final approved leave automatically updates scheduled shift segment in Employee Attendance to `ON_LEAVE`. Preserves other active duty shifts on double/triple shift days. | `LeaveAttendanceIntegrationService` |
+| **Monthly Register Display & Safety** | Monthly matrix displays `LV` badge on affected date, preserves $0$ unexcused absences, tracks worked hours accurately, and maintains $0.5\\text{d}$ quantity safety for downstream consumers. | `/admin/attendance/employees/register` |
+| **Governance & Audit Trail** | Immutable log tracking actor attribution (Username/Name, Role, System Engine), human-readable change summaries, diff cards, and search filters across all configuration, approval, ledger, and attendance events. | `/admin/hr/leaves/audit` |
 
 ---
 
-### B. ARCHITECTURALLY READY / FUTURE PHASE INTEGRATIONS
+### B. NOT YET IMPLEMENTED (Deferred to Future Phases)
 
-- **Multi-Shift Leave Readiness**:
-  - `LeavePolicyRule` and `LeaveLedgerTransaction` models contain `allowShiftWise`, `allowHourly`, and `shiftId` attributes to support leave bookings against specific morning, afternoon, or evening shift blocks without altering core Attendance models.
-- **Year-End Rollover Readiness**:
-  - `LeavePolicyRule` schema contains `yearEndAction` (`EXPIRE`, `CARRY_FORWARD`, `ENCASH`, `MIXED`), `maxCarryForwardDays`, `carryForwardExpiryMonths`, `maxEncashableDays`, and `minBalanceForEncashment`.
-
----
-
-### C. NOT YET IMPLEMENTED (Intentionally Deferred to Future Modules / Phases)
-
-The following items are intentionally **out of scope** for Phase 1:
-1. **Employee Leave Application Portal** (Self-service leave requests and draft submissions).
-2. **Student Leave Application System** (Class teacher / principal approval requests).
-3. **Multi-Level Approval Workflow** (Multi-tier hierarchical chains, delegated approvers, escalation timers).
-4. **Attendance Module Auto-Integration** (Automatically marking `ON_LEAVE` on daily student/employee roll calls).
-5. **Leave Modification & Cancellation** (Post-approval cancellations and duty resumption workflows).
-6. **Holiday & Sandwich Leave Processing** (Auto-incorporating weekends/holidays into leave counts).
-7. **Year-End Rollover Execution** (Automated annual carry-forward, encashment payout calculation, and expiry rollover).
-8. **Attendance-to-Payroll Integration** (Automatic salary deductions for unpaid leaves or threshold absence penalties).
-9. **Leave Analytics & Reports** (Aggregated historical leave utilization dashboards).
-10. **Notifications & Alerts** (Email/SMS/Push notifications for leave approvals).
+| Sub-System | Planned Phase | Notes |
+| :--- | :--- | :--- |
+| **Payroll Deduction Integration** | Phase 3 | Unpaid leave deduction from base salary, hourly deductions, and paid leave encashment calculations. |
+| **Year-End Carry-Forward Wizard** | Phase 3 | Year-end expiry, carry-forward quota caps, encashment batch processing, and 2027 opening balance initialization. |
+| **Biometric Punch Synchronization** | Phase 3 | Hardware webhook ingestion and punch-time conflict resolution against approved leave intervals. |
 
 ---
 
-## 3. Database Models Reference
+## 3. Approval & Attendance Integration Invariants
 
-- `leave_types`: Master categories (Unique on `[tenant_id, code]`).
-- `leave_policies`: Versioned policy headers (Unique on `[tenant_id, code]`).
-- `leave_policy_rules`: Policy-to-type configuration bindings (Unique on `[leave_policy_id, leave_type_id]`).
-- `leave_policy_assignments`: Group and employee policy assignments (Indexed on `[tenant_id, employee_id, effective_from]`).
-- `employee_leave_entitlements`: Annual employee balance summaries (Unique on `[tenant_id, employee_id, leave_type_id, leave_year]`).
-- `leave_ledger_transactions`: Immutable double-entry balance movement logs (Indexed on `[tenant_id, employee_id, leave_year]`).
-- `leave_audit_logs`: Governance audit trail for policy revisions, assignments, and balance adjustments.
+1. **Strict Final Approval Gate**:
+   - Only **FINAL APPROVED** (`APPROVED`) leave applications can affect the Entitlement Ledger (`LEAVE_USAGE`) and Employee Attendance (`ON_LEAVE`).
+   - `DRAFT`, `PENDING_APPROVAL`, `REJECTED`, `SENT_BACK`, and `CANCELLED` requests produce **ZERO** ledger transactions and **ZERO** attendance changes.
+2. **Double-Deduction Protection (Idempotency)**:
+   - Final approval execution is strictly idempotent. Repeated approver action submissions or batch synchronization routines verify existing `LEAVE_USAGE` ledger records and attendance links, preventing duplicate balance deductions.
+3. **Multi-Shift Duty Isolation**:
+   - When an employee working a multiple-shift duty schedule (e.g. Morning Shift + Afternoon Shift) takes leave for a specific shift segment, only that selected segment is marked `ON_LEAVE`. Remaining shifts remain active duty, unmarked, and editable.
+4. **Quantity Safety Invariant**:
+   - A $0.5\\text{d}$ specific-shift leave is preserved strictly as $0.5\\text{d}$ in entitlement consumption, leave analytics, and numeric totals. The Monthly Register `LV` day badge serves as a visual indicator and is decoupled from fractional day quantities.
+5. **Absence Immunity Invariant**:
+   - Approved leave is never categorized as an unexcused absence in monthly registers or dashboard statistics (`absentCount = 0`, `absentDays = 0`).
+
+---
+
+## 4. Verified Real-World Reference Case
+
+- **Employee**: Fatima Zahra (`EMP-102`, Islamic Studies Department)
+- **Schedule**: Double-Shift Teaching Duty (`WS-TEACHING-2X`: Morning `08:00–14:00`, Afternoon `12:00–16:00`)
+- **Leave Request**: `LR-2026-000148` (Date: `2026-09-02`, Scope: `SPECIFIC_SHIFT`, Selected: Morning Shift, Quantity: `0.5d` Casual Leave)
+- **Approval Flow**:
+  1. Department Incharge Review $\\longrightarrow$ **APPROVED**
+  2. Principal Approval $\\longrightarrow$ **APPROVED**
+  3. HR Office Final Record $\\longrightarrow$ **FINAL APPROVED**
+- **Ledger Verification**: `Allocated: 3.0d`, `Used: 0.5d`, `Available: 2.5d`, exactly **1** `LEAVE_USAGE` record (`amount: -0.5`).
+- **Attendance Verification**: Morning Shift $\\longrightarrow$ `ON_LEAVE` (`Casual Leave`, `LR-2026-000148`), Afternoon Shift $\\longrightarrow$ `PRESENT` ($4\\text{h}$ worked).
+- **Monthly Register**: September 2026 Day 2 shows `LV` badge, `leave = 0.5d`, `absent = 0d`.

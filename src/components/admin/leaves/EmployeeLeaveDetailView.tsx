@@ -211,7 +211,7 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
                     </div>
                     <div>
                       <span className="block text-slate-400">Used (P2)</span>
-                      <span className="font-semibold text-slate-400">{b.usedDays}d</span>
+                      <span className={`font-semibold ${b.usedDays > 0 ? 'text-amber-600 font-bold' : 'text-slate-600'}`}>{b.usedDays}d</span>
                     </div>
                   </div>
                 </div>
@@ -268,6 +268,8 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
                                   ? 'bg-emerald-50 text-emerald-700'
                                   : tx.transactionType === 'MANUAL_ADJUSTMENT_SUBTRACT'
                                   ? 'bg-amber-50 text-amber-700'
+                                  : tx.transactionType === 'LEAVE_USAGE'
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200/60'
                                   : 'bg-slate-100 text-slate-700'
                               }`}
                             >
@@ -294,7 +296,17 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
                             {tx.balanceAfter}d
                           </td>
                           <td className="px-6 py-4 text-xs text-slate-600 max-w-sm">
-                            {tx.reason || 'Standard system transaction'}
+                            <div className="flex items-center gap-2">
+                              <span>{tx.reason || 'Standard system transaction'}</span>
+                              {tx.referenceType === 'LEAVE_APPLICATION' && tx.referenceId && (
+                                <Link
+                                  href={`/admin/hr/leaves/applications/${tx.referenceId}`}
+                                  className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold px-1.5 py-0.5 bg-blue-50 rounded"
+                                >
+                                  View App
+                                </Link>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))

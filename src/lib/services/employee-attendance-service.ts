@@ -251,6 +251,7 @@ export class EmployeeAttendanceService {
       include: {
         shift: true,
         leaveType: true,
+        leaveApplication: { select: { id: true, applicationNumber: true } },
         recordedBy: { select: { username: true } },
       },
     });
@@ -282,12 +283,16 @@ export class EmployeeAttendanceService {
           email: emp.email,
           departmentId: emp.departmentId,
           departmentName: emp.department?.name,
+          department: emp.department ? { id: emp.department.id, name: emp.department.name, code: emp.department.code } : null,
           designationId: emp.designationId,
           designationName: emp.designation?.name,
+          designation: emp.designation ? { id: emp.designation.id, name: emp.designation.name, code: emp.designation.code } : null,
           employeeCategoryId: emp.employeeCategoryId,
           employeeCategoryName: emp.employeeCategory?.name,
           employmentTypeId: emp.employmentTypeId,
           employmentTypeName: emp.employmentType?.name,
+          employmentType: emp.employmentType ? { id: emp.employmentType.id, name: emp.employmentType.name, code: emp.employmentType.code } : null,
+          confirmationStatus: emp.confirmationStatus || 'CONFIRMED',
           shiftId: emp.shiftId,
           shiftName: applicableShifts[0]?.shiftName,
           shiftStartTime: applicableShifts[0]?.scheduledStartTime,
@@ -329,6 +334,14 @@ export class EmployeeAttendanceService {
               workedMinutes: workedM,
               workedHours: workedH,
               overtimeMinutes: rec.overtimeMinutes,
+              leaveTypeId: rec.leaveTypeId,
+              leaveTypeName: rec.leaveType?.name,
+              leaveApplicationId: rec.leaveApplicationId,
+              leaveApplicationNumber: rec.leaveApplication?.applicationNumber,
+              leaveScope: rec.leaveScope,
+              halfDayPeriod: rec.halfDayPeriod,
+              leaveStartTime: rec.leaveStartTime,
+              leaveEndTime: rec.leaveEndTime,
               remarks: rec.remarks,
             };
           }
@@ -711,9 +724,28 @@ export class EmployeeAttendanceService {
     });
 
     const daysArray: string[] = [];
+    const calendarDays: Array<{
+      date: string;
+      dayNumber: number;
+      dayName: string;
+      isWeeklyOff: boolean;
+      isHoliday: boolean;
+    }> = [];
+
     for (let d = 1; d <= daysInMonth; d++) {
       const dStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       daysArray.push(dStr);
+      const dt = new Date(Date.UTC(year, month - 1, d, 0, 0, 0, 0));
+      const dayOfWeek = dt.getUTCDay();
+      const isWeeklyOff = dayOfWeek === 0; // Sunday
+      const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek];
+      calendarDays.push({
+        date: dStr,
+        dayNumber: d,
+        dayName,
+        isWeeklyOff,
+        isHoliday: false,
+      });
     }
 
     const employeeRows = employees.map((emp) => {
@@ -721,38 +753,61 @@ export class EmployeeAttendanceService {
       let totalPresentDays = 0;
       let totalAbsentDays = 0;
       let totalLateDays = 0;
+      let totalLeaveDays = 0;
       let totalWorkedMinutes = 0;
 
-      const days: Record<string, { status: string; workedHours: number; shiftCount: number }> = {};
+      const days: Record<string, { status: string; workedHours: number; shiftCount: number; isLeave?: boolean }> = {};
+      const dailyStatuses: Record<number, { status: string; workedHours: number; shiftCount: number; isLeave?: boolean }> = {};
 
-      daysArray.forEach((dStr) => {
+      calendarDays.forEach((cd) => {
+        const dStr = cd.date;
         const dayRecords = empMap?.get(dStr) || [];
         if (dayRecords.length > 0) {
-          const dayWorkedMinutes = dayRecords.reduce((acc, r) => acc + r.workedMinutes, 0);
+          const dayWorkedMinutes = dayRecords.reduce((acc, r) => acc + (r.workedMinutes || 0), 0);
           const dayWorkedHours = Math.round((dayWorkedMinutes / 60) * 100) / 100;
           totalWorkedMinutes += dayWorkedMinutes;
 
           const hasPresent = dayRecords.some((r) => r.status === 'PRESENT' || r.status === 'LATE');
           const hasLate = dayRecords.some((r) => r.status === 'LATE');
+          const hasLeave = dayRecords.some((r) => r.status === 'ON_LEAVE');
+          const isPartialLeave = dayRecords.some(
+            (r) => r.status === 'ON_LEAVE' && (r.leaveScope === 'SPECIFIC_SHIFT' || r.leaveScope === 'HALF_DAY' || r.leaveScope === 'HOURLY')
+          );
+          const allLeave = dayRecords.every((r) => r.status === 'ON_LEAVE') && !isPartialLeave;
           const allAbsent = dayRecords.every((r) => r.status === 'ABSENT');
 
           let dayStatus = 'PRESENT';
-          if (allAbsent) dayStatus = 'ABSENT';
-          else if (hasLate) {
+          if (allLeave) {
+            dayStatus = 'ON_LEAVE';
+            totalLeaveDays += 1;
+          } else if (hasLeave) {
+            dayStatus = 'ON_LEAVE';
+            totalLeaveDays += 0.5;
+            if (hasPresent) totalPresentDays += 0.5;
+          } else if (allAbsent) {
+            dayStatus = 'ABSENT';
+            totalAbsentDays += 1;
+          } else if (hasLate) {
             dayStatus = 'LATE';
-            totalLateDays++;
+            totalLateDays += 1;
+            totalPresentDays += 1;
+          } else if (hasPresent) {
+            totalPresentDays += 1;
           }
 
-          if (hasPresent) totalPresentDays++;
-          else if (allAbsent) totalAbsentDays++;
-
-          days[dStr] = {
+          const dayInfo = {
             status: dayStatus,
             workedHours: dayWorkedHours,
             shiftCount: dayRecords.length,
+            isLeave: hasLeave,
           };
+
+          days[dStr] = dayInfo;
+          dailyStatuses[cd.dayNumber] = dayInfo;
         } else {
-          days[dStr] = { status: 'UNMARKED', workedHours: 0, shiftCount: 0 };
+          const defaultUnmarked = { status: 'UNMARKED', workedHours: 0, shiftCount: 0, isLeave: false };
+          days[dStr] = defaultUnmarked;
+          dailyStatuses[cd.dayNumber] = defaultUnmarked;
         }
       });
 
@@ -766,9 +821,18 @@ export class EmployeeAttendanceService {
           presentDays: totalPresentDays,
           absentDays: totalAbsentDays,
           lateDays: totalLateDays,
+          leaveDays: totalLeaveDays,
+          totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 100) / 100,
+        },
+        totals: {
+          present: totalPresentDays,
+          absent: totalAbsentDays,
+          late: totalLateDays,
+          leave: totalLeaveDays,
           totalWorkedHours: Math.round((totalWorkedMinutes / 60) * 100) / 100,
         },
         days,
+        dailyStatuses,
       };
     });
 
@@ -777,6 +841,7 @@ export class EmployeeAttendanceService {
       month,
       daysInMonth,
       days: daysArray,
+      calendarDays,
       employees: employeeRows,
     };
   }

@@ -96,6 +96,10 @@ export interface EmployeeDTO {
   employeeCategoryName?: string;
   employmentTypeId?: string | null;
   employmentTypeName?: string;
+  department?: { id: string; name: string; code: string } | null;
+  designation?: { id: string; name: string; code: string } | null;
+  employmentType?: { id: string; name: string; code: string } | null;
+  confirmationStatus?: string | null;
   shiftId?: string | null;
   shiftName?: string;
   shiftStartTime?: string;
@@ -157,6 +161,14 @@ export interface ShiftSegmentAttendanceDTO {
   workedMinutes: number;
   workedHours: number;
   overtimeMinutes: number;
+  leaveTypeId?: string | null;
+  leaveTypeName?: string | null;
+  leaveApplicationId?: string | null;
+  leaveApplicationNumber?: string | null;
+  leaveScope?: string | null;
+  halfDayPeriod?: string | null;
+  leaveStartTime?: string | null;
+  leaveEndTime?: string | null;
   remarks?: string | null;
 }
 

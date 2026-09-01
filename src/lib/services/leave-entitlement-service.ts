@@ -664,6 +664,185 @@ export class LeaveEntitlementService {
     };
   }
 
+
+  /**
+   * Atomically posts an approved leave request quantity to the Employee Leave Entitlement Ledger
+   * within an existing database transaction (idempotent, prevents double deduction).
+   */
+  static async recordLeaveUsageInTx(
+    tx: any,
+    tenantId: string,
+    applicationId: string,
+    actorUserId?: string | null
+  ): Promise<any> {
+    // 1. Check idempotency: if transaction already exists for this application, skip
+    const existingTxn = await tx.leaveLedgerTransaction.findFirst({
+      where: {
+        tenantId,
+        referenceId: applicationId,
+        referenceType: 'LEAVE_APPLICATION',
+        transactionType: 'LEAVE_USAGE',
+      },
+    });
+
+    if (existingTxn) {
+      return existingTxn;
+    }
+
+    // 2. Fetch Leave Application
+    const application = await tx.leaveApplication.findUnique({
+      where: { id: applicationId },
+      include: {
+        leaveType: true,
+        leavePolicy: true,
+        employee: true,
+        shifts: true,
+      },
+    });
+
+    if (!application || application.tenantId !== tenantId) {
+      throw new NotFoundError(`Leave Application with ID [${applicationId}] not found.`);
+    }
+
+    const leaveYear = application.startDate.getUTCFullYear();
+    const quantity = Number(application.requestedDays);
+
+    // 3. Find or Create Entitlement record for the year
+    let entitlement = await tx.employeeLeaveEntitlement.findFirst({
+      where: {
+        tenantId,
+        employeeId: application.employeeId,
+        leaveTypeId: application.leaveTypeId,
+        leaveYear,
+      },
+    });
+
+    if (!entitlement) {
+      // Create entitlement record if not already created
+      const resolved = await LeaveAssignmentService.resolvePolicyForEmployee(
+        tenantId,
+        application.employeeId,
+        application.startDate
+      );
+
+      const policyRule = resolved?.policy.rules.find((r) => r.leaveTypeId === application.leaveTypeId);
+      const allocatedDays = policyRule ? Number(policyRule.annualEntitlement || 0) : 0;
+
+      entitlement = await tx.employeeLeaveEntitlement.create({
+        data: {
+          tenantId,
+          employeeId: application.employeeId,
+          leaveTypeId: application.leaveTypeId,
+          leavePolicyId: application.leavePolicyId || resolved?.policy.id || '',
+          leaveYear,
+          allocationMethod: 'ANNUAL_UPFRONT',
+          openingBalance: 0,
+          allocatedDays,
+          carriedForwardDays: 0,
+          adjustedDays: 0,
+          usedDays: 0,
+          encashedDays: 0,
+          expiredDays: 0,
+          availableBalance: allocatedDays,
+          status: 'ACTIVE',
+        },
+      });
+    }
+
+    // 4. Determine Continuous Balance
+    const lastTxn = await tx.leaveLedgerTransaction.findFirst({
+      where: {
+        tenantId,
+        employeeId: application.employeeId,
+        leaveTypeId: application.leaveTypeId,
+        leaveYear,
+      },
+      orderBy: [{ effectiveDate: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const balanceBefore = lastTxn ? Number(lastTxn.balanceAfter) : Number(entitlement.availableBalance);
+    const balanceAfter = balanceBefore - quantity;
+    const usedDaysAfter = Number(entitlement.usedDays) + quantity;
+
+    // 5. Update Entitlement Summary
+    await tx.employeeLeaveEntitlement.update({
+      where: { id: entitlement.id },
+      data: {
+        usedDays: { increment: quantity },
+        availableBalance: balanceAfter,
+        lastCalculatedAt: new Date(),
+      },
+    });
+
+    // 6. Create Immutable Ledger Transaction
+    const firstShiftId = application.shifts && application.shifts.length > 0 ? application.shifts[0].shiftId : null;
+    const validShiftId = firstShiftId && firstShiftId !== 'unknown' ? firstShiftId : null;
+
+    let validUserId: string | null = null;
+    if (actorUserId) {
+      const u = await tx.user.findUnique({ where: { id: actorUserId } });
+      if (u) validUserId = u.id;
+    }
+
+    const ledgerTxn = await tx.leaveLedgerTransaction.create({
+      data: {
+        tenantId,
+        employeeId: application.employeeId,
+        leaveTypeId: application.leaveTypeId,
+        leavePolicyId: entitlement.leavePolicyId || application.leavePolicyId,
+        entitlementId: entitlement.id,
+        leaveYear,
+        transactionType: 'LEAVE_USAGE',
+        amount: -quantity,
+        balanceBefore,
+        balanceAfter,
+        effectiveDate: application.startDate,
+        reason: `Approved Leave Request ${application.applicationNumber} (${quantity}d ${application.leaveType.name})`,
+        referenceType: 'LEAVE_APPLICATION',
+        referenceId: application.id,
+        shiftId: validShiftId,
+        createdByUserId: validUserId,
+      },
+    });
+
+    // 7. Audit Log
+    await tx.leaveAuditLog.create({
+      data: {
+        tenantId,
+        entityType: 'LEAVE_LEDGER',
+        entityId: ledgerTxn.id,
+        action: 'ADJUSTED',
+        previousState: {
+          availableBalance: balanceBefore,
+          usedDays: Number(entitlement.usedDays),
+        },
+        newState: {
+          availableBalance: balanceAfter,
+          usedDays: usedDaysAfter,
+          leaveUsage: -quantity,
+          applicationNumber: application.applicationNumber,
+        },
+        reason: `Leave entitlement deduction of ${quantity}d for approved application ${application.applicationNumber}`,
+        userId: validUserId,
+      },
+    });
+
+    return ledgerTxn;
+  }
+
+  /**
+   * Standalone helper to record leave usage
+   */
+  static async recordLeaveUsage(
+    tenantId: string,
+    applicationId: string,
+    actorUserId?: string | null
+  ) {
+    return prisma.$transaction(async (tx) => {
+      return this.recordLeaveUsageInTx(tx, tenantId, applicationId, actorUserId);
+    });
+  }
+
   /**
    * Retrieves Audit Logs for Leave Management
    */

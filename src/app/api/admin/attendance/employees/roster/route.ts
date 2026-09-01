@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { EmployeeAttendanceService } from '@/lib/services/employee-attendance-service';
+import { resolveAuthContext } from '@/lib/auth/server-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const tenantId = request.headers.get('x-tenant-id') || 'tenant-sch-001';
+    const auth = await resolveAuthContext(request).catch(() => null);
+    const tenantId = auth?.tenantId || request.headers.get('x-tenant-id') || 'tenant-sch-001';
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
     const departmentId = searchParams.get('departmentId') || undefined;

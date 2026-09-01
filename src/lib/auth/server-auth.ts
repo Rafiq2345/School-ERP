@@ -75,12 +75,19 @@ export async function resolveAuthContext(req: NextRequest): Promise<AuthContext 
 
   if (!fallbackTenantId) {
     try {
-      const activeTenant = await prisma.tenant.findFirst({
-        where: { status: 'ACTIVE' },
-        orderBy: { createdAt: 'asc' },
+      const primaryTenant = await prisma.tenant.findFirst({
+        where: { id: 'tenant-sch-001', status: 'ACTIVE' },
       });
-      if (activeTenant) {
-        fallbackTenantId = activeTenant.id;
+      if (primaryTenant) {
+        fallbackTenantId = primaryTenant.id;
+      } else {
+        const activeTenant = await prisma.tenant.findFirst({
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (activeTenant) {
+          fallbackTenantId = activeTenant.id;
+        }
       }
     } catch {
       // Non-blocking
@@ -89,7 +96,7 @@ export async function resolveAuthContext(req: NextRequest): Promise<AuthContext 
 
   return {
     userId: fallbackUserId || 'usr-admin-01',
-    tenantId: fallbackTenantId || 'tenant-test-admin-config',
+    tenantId: fallbackTenantId || 'tenant-sch-001',
     userType: 'ADMIN',
     roles: ['SUPER_ADMIN'],
     permissions: ['*'],

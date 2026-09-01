@@ -94,6 +94,21 @@ export class LeaveAuditService {
       : [];
     const policiesMap = new Map(policies.map((p) => [p.id, p]));
 
+    // 5. Batch load Leave Applications
+    const appIds = rawLogs
+      .filter((l) => l.entityType === 'LEAVE_APPLICATION')
+      .map((l) => l.entityId);
+    const apps = appIds.length > 0
+      ? await prisma.leaveApplication.findMany({
+          where: { id: { in: appIds } },
+          include: {
+            employee: { include: { department: true, designation: true } },
+            leaveType: true,
+          },
+        })
+      : [];
+    const appsMap = new Map(apps.map((a) => [a.id, a]));
+
     // Enrich logs
     const enrichedList: EnrichedLeaveAuditLogDto[] = [];
 
@@ -261,6 +276,38 @@ export class LeaveAuditService {
             subtitle: 'Annual Allocation Wizard',
           };
           changeSummary = `Annual bulk entitlement allocated for Year ${year} (${next?.allocatedEmployeesCount ?? 0} employees, ${next?.transactionsCount ?? 0} transactions)`;
+          break;
+        }
+
+        case 'LEAVE_APPLICATION': {
+          const app = appsMap.get(log.entityId);
+          const empName = app
+            ? `${app.employee.firstNameEn} ${app.employee.lastNameEn}`
+            : next?.employeeName || 'Employee';
+          const appNo = app ? app.applicationNumber : next?.applicationNumber || log.entityId;
+          const ltName = app ? app.leaveType.name : next?.leaveTypeCode || 'Leave';
+          const qty = app ? Number(app.requestedDays) : next?.requestedDays || 0;
+
+          relatedRecord = {
+            type: 'Leave Application',
+            title: `${appNo} - ${empName}`,
+            subtitle: `${qty}d ${ltName} (${app ? app.status : next?.status || 'Pending'})`,
+            employeeNo: app?.employee?.employeeNo,
+            department: app?.employee?.department?.name,
+            leaveTypeCode: app?.leaveType?.code || next?.leaveTypeCode,
+          };
+
+          if (log.action === 'DRAFT_CREATED') {
+            changeSummary = `Created draft leave request ${appNo} (${qty}d ${ltName}) for ${empName}`;
+          } else if (log.action === 'APPLICATION_SUBMITTED') {
+            changeSummary = `Submitted leave application ${appNo} (${qty}d ${ltName}) for ${empName}`;
+          } else if (log.action === 'DRAFT_UPDATED') {
+            changeSummary = `Updated draft application ${appNo} (${qty}d ${ltName}) for ${empName}`;
+          } else if (log.action === 'APPLICATION_CANCELLED') {
+            changeSummary = `Cancelled leave application ${appNo} for ${empName}`;
+          } else {
+            changeSummary = log.reason || `${log.action} on application ${appNo}`;
+          }
           break;
         }
 

@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   CalendarDays,
+  FileText,
+  Inbox,
+  GitBranch,
   ListOrdered,
   FileCheck2,
   Users,
@@ -16,7 +19,10 @@ export function LeaveManagementNav() {
   const pathname = usePathname();
 
   const navItems = [
-    { label: 'Leave Foundation', href: '/admin/hr/leaves', icon: CalendarDays, exact: true },
+    { label: 'Overview', href: '/admin/hr/leaves', icon: CalendarDays, exact: true },
+    { label: 'Applications', href: '/admin/hr/leaves/applications', icon: FileText },
+    { label: 'Approval Inbox', href: '/admin/hr/leaves/approvals', icon: Inbox },
+    { label: 'Workflows', href: '/admin/hr/leaves/workflows', icon: GitBranch },
     { label: 'Leave Types', href: '/admin/hr/leaves/types', icon: ListOrdered },
     { label: 'Leave Policies', href: '/admin/hr/leaves/policies', icon: FileCheck2 },
     { label: 'Policy Assignments', href: '/admin/hr/leaves/assignments', icon: Users },
