@@ -144,7 +144,6 @@ flowchart TD
 | Sub-System | Planned Phase | Notes |
 | :--- | :--- | :--- |
 | **Payroll Base Salary & Hourly Rate Calculation** | Phase 3 (Step 2+) | Base salary derivation, per-day rate computation, hourly deduction rate calculation, and net payroll deduction execution once Payroll module is active. |
-| **Year-End Carry-Forward Wizard** | Phase 3 | Year-end expiry, carry-forward quota caps, encashment batch processing, and 2027 opening balance initialization. |
 | **Biometric Punch Synchronization** | Phase 3 | Hardware webhook ingestion and punch-time conflict resolution against approved leave intervals. |
 
 ---
@@ -257,3 +256,31 @@ flowchart TD
    - Historical deduction records are never hard-deleted.
 6. **Strict Idempotency**:
    - Re-running reconciliation multiple times produces zero duplicate deduction inputs.
+
+---
+
+## 6. Year-End Leave Processing Engine (Phase 3 Step 3)
+
+### A. Data Models & Entities
+1. **`LeaveYearEndBatch`**:
+   - Tracks annual rollover execution batches per tenant and source/target year.
+   - Statuses: `COMPLETED`, `REVERSED`.
+   - Aggregated metrics: `totalEmployeesScanned`, `totalCarriedForwardDays`, `totalEncashedDays`, `totalExpiredDays`.
+   - Execution & Reversal audit attribution: `executedByUserId`, `executedAt`, `reversedByUserId`, `reversedAt`, `reversalReason`.
+2. **`LeaveYearEndBatchItem`**:
+   - Detailed per-employee, per-leave-type calculation breakdown.
+   - Stores `initialBalance`, `carriedForwardDays`, `encashedDays`, `expiredDays`, `finalBalance`, `ruleSnapshot` (JSON), and `status` (`PROCESSED`, `SKIPPED`, `REVERSED`).
+
+### B. Core Business Rules & Invariants
+1. **Configurable Year-End Dispositions**:
+   - **`EXPIRE`**: Remaining unused balance expires to zero with immutable double-entry ledger deduction (`type = 'EXPIRY'`, `amount = -balance`).
+   - **`CARRY_FORWARD`**: Carries forward balance up to configurable `maxCarryForwardDays`. Any excess balance expires. Credited to target leave year entitlement as `carriedForwardDays` without replacing existing upfront allocations.
+   - **`ENCASH`**: If balance meets or exceeds `minBalanceForEncashment`, encashes balance up to `maxEncashableDays`. Unused remainder expires. Generates downstream `PayrollDeductionInput` (`sourceType = 'LEAVE_ENCASHMENT'`, `deductionAmount: null`, `status = 'PENDING'`).
+   - **`MIXED`**: Carries forward up to `maxCarryForwardDays`, encashes eligible remainder up to `maxEncashableDays`, and expires any excess.
+2. **Double-Entry Ledger Integrity**:
+   - Balances are continuously chained and never hard-deleted.
+   - Closing year records deductions with `CARRY_FORWARD`, `ENCASHMENT`, or `EXPIRY` transactions.
+   - Receiving year records addition with `CARRY_FORWARD` transaction.
+3. **Idempotency & Reversal Safety**:
+   - Multiple executions for the same source leave year are blocked by strict validation guards.
+   - Batch reversal posts compensating ledger transactions (`MANUAL_ADJUSTMENT_ADD` on source year, `MANUAL_ADJUSTMENT_SUBTRACT` on target year), transitions downstream encashment payroll inputs to `REVERSED`, and reopens source year entitlements (`status = 'ACTIVE'`).

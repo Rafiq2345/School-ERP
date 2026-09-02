@@ -100,6 +100,8 @@ model Tenant {
   leaveApprovalInstances    LeaveRequestApprovalInstance[]
   leaveRequestApprovalSteps LeaveRequestApprovalStep[]
   leaveApprovalHistories    LeaveApprovalActionHistory[]
+  leaveYearEndBatches       LeaveYearEndBatch[]
+  leaveYearEndBatchItems    LeaveYearEndBatchItem[]
 
   // Phase 3: Payroll Deduction Foundation
   payrollDeductionPolicies  PayrollDeductionPolicy[]
@@ -176,6 +178,8 @@ model User {
   leaveStepActions        LeaveRequestApprovalStep[]   @relation("StepActionUser")
   leaveWorkflowSteps      LeaveApprovalWorkflowStep[]  @relation("WorkflowStepApprover")
   leaveActionHistories    LeaveApprovalActionHistory[] @relation("LeaveActionActor")
+  yearEndBatchesExecuted   LeaveYearEndBatch[]          @relation("YearEndBatchExecutor")
+  yearEndBatchesReversed   LeaveYearEndBatch[]          @relation("YearEndBatchReverser")
 
   // Phase 3: Payroll Deduction Foundation
   payrollDeductionPoliciesCreated  PayrollDeductionPolicy[]    @relation("DeductionPolicyCreator")
@@ -879,6 +883,7 @@ model LeaveType {
   leaveWorkflowRules        LeaveApprovalWorkflowRule[]
   payrollDeductionPolicies  PayrollDeductionPolicy[]
   payrollDeductionInputs    PayrollDeductionInput[]
+  yearEndBatchItems         LeaveYearEndBatchItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
@@ -1824,6 +1829,7 @@ model LeavePolicy {
   entitlements       EmployeeLeaveEntitlement[]
   ledgerTransactions LeaveLedgerTransaction[]
   leaveApplications  LeaveApplication[]
+  yearEndBatchItems         LeaveYearEndBatchItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -1994,6 +2000,73 @@ model LeaveAuditLog {
 }
 
 // ---------------------------------------------------------
+
+
+// ---------------------------------------------------------
+// 17B. YEAR-END LEAVE PROCESSING (PHASE 3 STEP 3)
+// ---------------------------------------------------------
+
+model LeaveYearEndBatch {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  batchNumber           String    @map("batch_number")
+  sourceLeaveYear       Int       @map("source_leave_year") // e.g. 2026
+  targetLeaveYear       Int       @map("target_leave_year") // e.g. 2027
+  status                String    @default("COMPLETED") @map("status") // COMPLETED, REVERSED
+  totalEmployeesScanned Int       @default(0) @map("total_employees_scanned")
+  totalCarriedForwardDays Decimal @default(0.00) @map("total_carried_forward_days") @db.Decimal(7, 2)
+  totalEncashedDays     Decimal   @default(0.00) @map("total_encashed_days") @db.Decimal(7, 2)
+  totalExpiredDays      Decimal   @default(0.00) @map("total_expired_days") @db.Decimal(7, 2)
+  notes                 String?
+  executedByUserId      String?   @map("executed_by_user_id")
+  executedAt            DateTime  @default(now()) @map("executed_at")
+  reversedByUserId      String?   @map("reversed_by_user_id")
+  reversedAt            DateTime? @map("reversed_at")
+  reversalReason        String?   @map("reversal_reason")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  executedBy User?                    @relation("YearEndBatchExecutor", fields: [executedByUserId], references: [id], onDelete: SetNull)
+  reversedBy User?                    @relation("YearEndBatchReverser", fields: [reversedByUserId], references: [id], onDelete: SetNull)
+  items      LeaveYearEndBatchItem[]
+
+  @@unique([tenantId, batchNumber])
+  @@index([tenantId, sourceLeaveYear])
+  @@index([tenantId, status])
+  @@map("leave_year_end_batches")
+}
+
+model LeaveYearEndBatchItem {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  batchId            String   @map("batch_id")
+  employeeId         String   @map("employee_id")
+  leaveTypeId        String   @map("leave_type_id")
+  leavePolicyId      String?  @map("leave_policy_id")
+  initialBalance     Decimal  @map("initial_balance") @db.Decimal(5, 2)
+  carriedForwardDays Decimal  @default(0.00) @map("carried_forward_days") @db.Decimal(5, 2)
+  encashedDays       Decimal  @default(0.00) @map("encashed_days") @db.Decimal(5, 2)
+  expiredDays        Decimal  @default(0.00) @map("expired_days") @db.Decimal(5, 2)
+  finalBalance       Decimal  @default(0.00) @map("final_balance") @db.Decimal(5, 2)
+  ruleSnapshot       Json     @map("rule_snapshot")
+  status             String   @default("PROCESSED") @map("status") // PROCESSED, SKIPPED, REVERSED
+  skipReason         String?  @map("skip_reason")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch       LeaveYearEndBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  employee    Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  leavePolicy LeavePolicy?       @relation(fields: [leavePolicyId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, batchId])
+  @@index([tenantId, employeeId, leaveTypeId])
+  @@index([tenantId, status])
+  @@map("leave_year_end_batch_items")
+}
+
 // 18. LEAVE MANAGEMENT: APPLICATIONS & CALCULATION ENGINE (PHASE 2)
 // ---------------------------------------------------------
 

@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Scale,
   Calculator,
+  RefreshCw,
 } from 'lucide-react';
 
 export function LeaveManagementNav() {
@@ -29,6 +30,7 @@ export function LeaveManagementNav() {
     { label: 'Leave Policies', href: '/admin/hr/leaves/policies', icon: FileCheck2 },
     { label: 'Payroll Rules', href: '/admin/hr/leaves/payroll-rules', icon: Scale },
     { label: 'Deductions & Reconciliation', href: '/admin/hr/leaves/payroll-deductions', icon: Calculator },
+    { label: 'Year-End Processing', href: '/admin/hr/leaves/year-end', icon: RefreshCw },
     { label: 'Policy Assignments', href: '/admin/hr/leaves/assignments', icon: Users },
     { label: 'Entitlements & Ledger', href: '/admin/hr/leaves/entitlements', icon: Coins },
     { label: 'Leave Audit', href: '/admin/hr/leaves/audit', icon: ShieldAlert },

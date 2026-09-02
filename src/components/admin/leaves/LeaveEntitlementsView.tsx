@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   Coins,
@@ -21,11 +22,34 @@ import {
 } from '@/lib/types/leave';
 
 export function LeaveEntitlementsView() {
-  const [leaveYear, setLeaveYear] = useState<number>(new Date().getFullYear());
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const urlYear = searchParams.get('year');
+  const initialYear = urlYear ? parseInt(urlYear, 10) : new Date().getFullYear();
+  const [leaveYear, setLeaveYear] = useState<number>(!isNaN(initialYear) ? initialYear : new Date().getFullYear());
   const [previewItems, setPreviewItems] = useState<EntitlementAllocationPreviewItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [allocating, setAllocating] = useState(false);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
+
+  useEffect(() => {
+    const paramYear = searchParams.get('year');
+    if (paramYear) {
+      const parsed = parseInt(paramYear, 10);
+      if (!isNaN(parsed) && parsed !== leaveYear) {
+        setLeaveYear(parsed);
+      }
+    }
+  }, [searchParams, leaveYear]);
+
+  const handleYearChange = (newYear: number) => {
+    setLeaveYear(newYear);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('year', newYear.toString());
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   const handlePreview = async () => {
     try {
@@ -107,12 +131,14 @@ export function LeaveEntitlementsView() {
               <span className="text-xs font-bold text-slate-700 uppercase">Leave Year:</span>
               <select
                 value={leaveYear}
-                onChange={(e) => setLeaveYear(parseInt(e.target.value, 10))}
+                onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
                 className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-bold bg-white"
               >
                 <option value={2025}>2025</option>
                 <option value={2026}>2026</option>
                 <option value={2027}>2027</option>
+                <option value={2028}>2028</option>
+                <option value={2029}>2029</option>
               </select>
             </div>
 

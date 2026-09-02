@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   Coins,
   ShieldAlert,
@@ -12,9 +13,26 @@ import { LeaveManagementNav } from './LeaveManagementNav';
 import { EmployeeLeaveSummaryDto } from '@/lib/types/leave';
 
 export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const urlYear = searchParams.get('year');
+  const initialYear = urlYear ? parseInt(urlYear, 10) : new Date().getFullYear();
+  const [leaveYear, setLeaveYear] = useState<number>(!isNaN(initialYear) ? initialYear : new Date().getFullYear());
   const [summary, setSummary] = useState<EmployeeLeaveSummaryDto | null>(null);
-  const [leaveYear, setLeaveYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
+
+  // Sync state with URL parameter if searchParams changes
+  useEffect(() => {
+    const paramYear = searchParams.get('year');
+    if (paramYear) {
+      const parsed = parseInt(paramYear, 10);
+      if (!isNaN(parsed) && parsed !== leaveYear) {
+        setLeaveYear(parsed);
+      }
+    }
+  }, [searchParams, leaveYear]);
 
   // Manual Adjustment Modal
   const [isAdjModalOpen, setIsAdjModalOpen] = useState(false);
@@ -46,6 +64,13 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
     loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, leaveYear]);
+
+  const handleYearChange = (newYear: number) => {
+    setLeaveYear(newYear);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('year', newYear.toString());
+    router.push(`${pathname}?${params.toString()}`);
+  };
 
   const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,7 +132,7 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
             <span className="text-xs font-bold text-slate-700 uppercase">Year:</span>
             <select
               value={leaveYear}
-              onChange={(e) => setLeaveYear(parseInt(e.target.value, 10))}
+              onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
               className="px-3 py-1 border border-slate-200 rounded-lg text-sm font-bold bg-white"
             >
               <option value={2025}>2025</option>
@@ -190,10 +215,16 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
                     <span className="text-xs text-slate-500 ml-1">Available</span>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-100 grid grid-cols-3 gap-1 text-[11px] text-slate-500">
+                  <div className="pt-2 border-t border-slate-100 grid grid-cols-4 gap-1 text-[11px] text-slate-500">
                     <div>
-                      <span className="block text-slate-400">Allocated</span>
+                      <span className="block text-slate-400">Alloc</span>
                       <span className="font-semibold text-slate-700">{b.allocatedDays}d</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Carry Fwd</span>
+                      <span className={`font-semibold ${b.carriedForwardDays > 0 ? 'text-blue-700 font-bold' : 'text-slate-700'}`}>
+                        {b.carriedForwardDays > 0 ? `+${b.carriedForwardDays}` : b.carriedForwardDays}d
+                      </span>
                     </div>
                     <div>
                       <span className="block text-slate-400">Adjusted</span>
@@ -210,7 +241,7 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
                       </span>
                     </div>
                     <div>
-                      <span className="block text-slate-400">Used (P2)</span>
+                      <span className="block text-slate-400">Used</span>
                       <span className={`font-semibold ${b.usedDays > 0 ? 'text-amber-600 font-bold' : 'text-slate-600'}`}>{b.usedDays}d</span>
                     </div>
                   </div>

@@ -125,7 +125,20 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
   - **Period Reconciliation Execution**: Reconciles the active monthly payroll period, creating pending deductions and automatically reversing obsolete exceptions when historical attendance corrections occur.
   - **Immutable Audit Trail**: Every deduction generation and reversal records actor attribution and calculation evidence.
 
-## 10. Implementation Status
+
+## 11. Year-End Processing & Rollover Wizard (Phase 3 Step 3)
+
+<!-- [Screenshot Placeholder: Year-End Processing Preview and Batch History] -->
+
+- **Run Year-End Processing (`/admin/hr/leaves/year-end`)**:
+  - Administrators select the closing source leave year (e.g., 2026) and receiving target year (e.g., 2027).
+  - **Preview Engine**: Calculates individual carry-forward, encashment, and expiry quantities per employee and leave type rule before committing.
+  - **Batch Execution**: Finalizes closing year balances, credits target year carry-forward counters, and generates encashment payroll contract inputs with complete double-entry ledger auditability.
+- **Batch History & Reversals**:
+  - Displays historical batches with status (`COMPLETED`, `REVERSED`), audit timestamps, and breakdown modals.
+  - Supports administrative batch reversal with automatic compensating ledger postings and payroll input status reversal.
+
+## 12. Implementation Status
 
 ### IMPLEMENTED & FULLY VERIFIED:
 - Leave Types Master (`/admin/hr/leaves/types`)
@@ -142,10 +155,8 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
 - Comprehensive Governance Audit Trail (`/admin/hr/leaves/audit`)
 - Payroll Deduction Foundation — Phase 3 Step 1 (`PayrollDeductionPolicy`, `PayrollDeductionInput`, `PayrollDeductionAuditLog`)
 - Attendance-to-Payroll Rule Engine & Reconciliation — Phase 3 Step 2 (`/admin/hr/leaves/payroll-rules` & `/admin/hr/leaves/payroll-deductions`)
+- Year-End Processing & Rollover Engine — Phase 3 Step 3 (`/admin/hr/leaves/year-end`)
 
 ### NOT YET IMPLEMENTED (Deferred to Next Steps / Future Phases):
-- Payroll Base Salary & Net Deduction Calculations (Phase 3 Step 3+)
-- Year-End Carry-Forward & Encashment Batch Wizard (Phase 3)
+- Payroll Base Salary & Net Deduction Calculations (Phase 3 Step 4+)
 - Hardware Biometric Punch Auto-Sync (Phase 3)
-
-

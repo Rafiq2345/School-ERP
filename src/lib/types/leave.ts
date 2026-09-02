@@ -944,3 +944,96 @@ export interface ApproverActionInputDto {
   clarificationResponse?: string;
   targetStepNumber?: number;
 }
+
+// ---------------------------------------------------------
+// 8. YEAR-END LEAVE PROCESSING DTOs (PHASE 3 STEP 3)
+// ---------------------------------------------------------
+
+export interface YearEndDispositionItemDto {
+  employeeId: string;
+  employeeNo: string;
+  employeeName: string;
+  departmentName?: string;
+  designationName?: string;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  leaveTypeCode: string;
+  policyId?: string;
+  policyCode?: string;
+  policyName?: string;
+  yearEndAction: YearEndAction;
+  availableBalance: number;
+  carriedForwardDays: number;
+  encashedDays: number;
+  expiredDays: number;
+  finalBalance: number;
+  status: 'READY' | 'SKIPPED' | 'PROCESSED' | 'REVERSED';
+  skipReason?: string;
+}
+
+export interface YearEndPreviewSummaryDto {
+  sourceLeaveYear: number;
+  targetLeaveYear: number;
+  totalEmployees: number;
+  totalEligibleRecords: number;
+  totalCarriedForwardDays: number;
+  totalEncashedDays: number;
+  totalExpiredDays: number;
+  items: YearEndDispositionItemDto[];
+  alreadyProcessed?: boolean;
+  existingBatchNumber?: string | null;
+  existingBatchId?: string | null;
+  existingBatchExecutedAt?: string | null;
+}
+
+export interface ExecuteYearEndBatchDto {
+  sourceLeaveYear: number;
+  targetLeaveYear: number;
+  departmentId?: string;
+  employeeIds?: string[];
+  notes?: string;
+}
+
+export interface LeaveYearEndBatchItemDto {
+  id: string;
+  batchId: string;
+  employeeId: string;
+  employeeNo?: string;
+  employeeName?: string;
+  leaveTypeId: string;
+  leaveTypeName?: string;
+  leavePolicyId: string | null;
+  initialBalance: number;
+  carriedForwardDays: number;
+  encashedDays: number;
+  expiredDays: number;
+  finalBalance: number;
+  ruleSnapshot: Record<string, any>;
+  status: 'PROCESSED' | 'SKIPPED' | 'REVERSED';
+  skipReason: string | null;
+  createdAt: string;
+}
+
+export interface LeaveYearEndBatchDto {
+  id: string;
+  tenantId: string;
+  batchNumber: string;
+  sourceLeaveYear: number;
+  targetLeaveYear: number;
+  status: 'COMPLETED' | 'REVERSED';
+  totalEmployeesScanned: number;
+  totalCarriedForwardDays: number;
+  totalEncashedDays: number;
+  totalExpiredDays: number;
+  notes: string | null;
+  executedByUserId: string | null;
+  executedByName?: string | null;
+  executedAt: string;
+  reversedByUserId: string | null;
+  reversedByName?: string | null;
+  reversedAt: string | null;
+  reversalReason: string | null;
+  items?: LeaveYearEndBatchItemDto[];
+  createdAt: string;
+  updatedAt: string;
+}
