@@ -1654,25 +1654,33 @@ model EmployeeAttendanceRecord {
   overtimeMinutes    Int       @default(0) @map("overtime_minutes")
   isHoliday          Boolean   @default(false) @map("is_holiday")
   isWeeklyOff        Boolean   @default(false) @map("is_weekly_off")
-  leaveTypeId        String?   @map("leave_type_id")
-  remarks            String?
-  punchSource        String    @default("MANUAL") @map("punch_source") // MANUAL, BIOMETRIC, RFID, MOBILE_APP
-  recordedByUserId   String?   @map("recorded_by_user_id")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  leaveTypeId           String?   @map("leave_type_id")
+  // Phase 2 leave-link fields — populated when status = ON_LEAVE
+  leaveApplicationId    String?   @map("leave_application_id")
+  leaveScope            String?   @map("leave_scope")            // FULL_DAY | HALF_DAY | SPECIFIC_SHIFT | HOURLY
+  halfDayPeriod         String?   @map("half_day_period")        // FIRST_HALF | SECOND_HALF (for HALF_DAY scope)
+  leaveStartTime        String?   @map("leave_start_time")       // HH:MM (for HOURLY scope)
+  leaveEndTime          String?   @map("leave_end_time")         // HH:MM (for HOURLY scope)
+  remarks               String?
+  punchSource           String    @default("MANUAL") @map("punch_source") // MANUAL, BIOMETRIC, RFID, MOBILE_APP
+  recordedByUserId      String?   @map("recorded_by_user_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
-  tenant     Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  employee   Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  shift      Shift                        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  leaveType  LeaveType?                   @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
-  recordedBy User?                        @relation("EmpAttendanceRecorder", fields: [recordedByUserId], references: [id], onDelete: SetNull)
-  auditLogs  EmployeeAttendanceAuditLog[]
+  tenant          Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee        Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift           Shift                        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  leaveType       LeaveType?                   @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  leaveApplication LeaveApplication?           @relation("AttendanceLeaveLink", fields: [leaveApplicationId], references: [id], onDelete: SetNull)
+  recordedBy      User?                        @relation("EmpAttendanceRecorder", fields: [recordedByUserId], references: [id], onDelete: SetNull)
+  auditLogs       EmployeeAttendanceAuditLog[]
 
   @@unique([tenantId, employeeId, attendanceDate, shiftId])
   @@index([tenantId, attendanceDate])
   @@index([tenantId, employeeId])
   @@index([tenantId, status])
   @@index([tenantId, shiftId])
+  @@index([tenantId, leaveApplicationId])
   @@map("employee_attendance_records")
 }
 
@@ -2024,6 +2032,7 @@ model LeaveApplication {
   shifts           LeaveApplicationShift[]
   approvalInstance LeaveRequestApprovalInstance?
   payrollDeductionInputs PayrollDeductionInput[]
+  attendanceRecords      EmployeeAttendanceRecord[] @relation("AttendanceLeaveLink")
 
   @@unique([tenantId, applicationNumber])
   @@index([tenantId, employeeId, startDate, endDate])

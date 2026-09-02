@@ -133,22 +133,57 @@ flowchart TD
 | **Approval Inbox** | Unified review dashboard (`/admin/hr/leaves/approvals`) with "Actionable by Me" vs "All Pending" tabs, department/type/search filters, and quick action dialog modal. | `/admin/hr/leaves/approvals` |
 | **Final Approval Ledger Deduction** | Atomically creates exactly ONE immutable `LEAVE_USAGE` ledger transaction on Step 3 Final Approval. Guaranteed idempotency prevents double deductions upon replay. | `LeaveEntitlementService.recordLeaveUsageInTx` |
 | **Attendance Auto-Integration** | Final approved leave automatically updates scheduled shift segment in Employee Attendance to `ON_LEAVE`. Preserves other active duty shifts on double/triple shift days. | `LeaveAttendanceIntegrationService` |
-| **Monthly Register Display & Safety** | Monthly matrix displays `LV` badge on affected date, preserves $0$ unexcused absences, tracks worked hours accurately, and maintains $0.5\\text{d}$ quantity safety for downstream consumers. | `/admin/attendance/employees/register` |
+| **Monthly Register Display & Safety** | Monthly matrix displays `LV` badge on affected date, preserves $0$ unexcused absences, tracks worked hours accurately, and maintains $0.5\text{d}$ quantity safety for downstream consumers. | `/admin/attendance/employees/register` |
 | **Governance & Audit Trail** | Immutable log tracking actor attribution (Username/Name, Role, System Engine), human-readable change summaries, diff cards, and search filters across all configuration, approval, ledger, and attendance events. | `/admin/hr/leaves/audit` |
+| **Payroll Deduction Foundation (Phase 3 Step 1)** | Unpaid leave deduction contract layer: `PayrollDeductionPolicy`, `PayrollDeductionInput`, and `PayrollDeductionAuditLog`. Final approval of unpaid leave automatically creates pending deduction inputs with monthly period derivation, strict idempotency, and audit logging. Monetary amount remains null pending full Payroll module. | `PayrollDeductionInputService`, `PayrollDeductionPolicyService` |
 
 ---
 
-### B. NOT YET IMPLEMENTED (Deferred to Future Phases)
+### B. NOT YET IMPLEMENTED (Deferred to Future Phases / Next Steps)
 
 | Sub-System | Planned Phase | Notes |
 | :--- | :--- | :--- |
-| **Payroll Deduction Integration** | Phase 3 | Unpaid leave deduction from base salary, hourly deductions, and paid leave encashment calculations. |
+| **Payroll Base Salary & Hourly Rate Calculation** | Phase 3 (Step 2+) | Base salary derivation, per-day rate computation, hourly deduction rate calculation, and net payroll deduction execution once Payroll module is active. |
 | **Year-End Carry-Forward Wizard** | Phase 3 | Year-end expiry, carry-forward quota caps, encashment batch processing, and 2027 opening balance initialization. |
 | **Biometric Punch Synchronization** | Phase 3 | Hardware webhook ingestion and punch-time conflict resolution against approved leave intervals. |
 
 ---
 
-## 3. Approval & Attendance Integration Invariants
+## 3. Payroll Deduction Foundation Architecture (Phase 3 Step 1)
+
+### A. Data Models & Entities
+1. **`PayrollDeductionPolicy`**:
+   - Configurable deduction rules per tenant and leave type (e.g. `UNPAID_LEAVE`, `LATE_ARRIVAL`).
+   - Calculation bases: `CALENDAR_DAYS` (1/30th), `WORKING_DAYS` (1/working days), `HOURLY_RATE`.
+   - Effective-dated with active status flags and audit attribution.
+2. **`PayrollDeductionInput`**:
+   - Represents an unfulfilled/pending deduction feed item for the downstream Payroll engine.
+   - Status lifecycle: `PENDING` $\rightarrow$ `APPLIED` $\rightarrow$ `REVERSED` $\rightarrow$ `CANCELLED`.
+   - Immutable evidence snapshot: captures leave application ID, employee, leave type, policy used, requested days, and calculation evidence.
+   - `deductionAmount`: strictly `null` in Phase 3 Step 1 (monetary valuation deferred to Payroll module execution).
+3. **`PayrollDeductionAuditLog`**:
+   - Append-only immutable governance log tracking deduction events (`GENERATED`, `APPLIED`, `REVERSED`, `CANCELLED`).
+
+### B. Integration & Lifecycle Guards
+- **Final Approval Trigger**: Triggered inside `LeaveApprovalService` upon final step approval:
+  ```typescript
+  if (!application.isPaid) {
+    await PayrollDeductionInputService.generateForApprovedLeave(
+      tx,
+      tenantId,
+      applicationId,
+      actorUserId
+    );
+  }
+  ```
+- **Paid Leave Skip**: Paid leaves (`isPaid = true`) bypass deduction input generation completely (0 deduction records created).
+- **Graceful Unconfigured Policy Handling**: If no active `PayrollDeductionPolicy` is configured for the unpaid leave type, the service skips generation gracefully with a warning log and does not block approval.
+- **Strict Idempotency**: Unique constraint `@@unique([tenantId, leaveApplicationId, payrollPeriodStart])` ensures re-running or retrying approval returns the existing deduction record without duplicate generation.
+- **Reversal Capability**: `reverseDeductionInput` transitions `PENDING`/`APPLIED` inputs to `REVERSED` with a mandatory reason and audit entry without hard deletion.
+
+---
+
+## 4. Approval & Attendance Integration Invariants
 
 1. **Strict Final Approval Gate**:
    - Only **FINAL APPROVED** (`APPROVED`) leave applications can affect the Entitlement Ledger (`LEAVE_USAGE`) and Employee Attendance (`ON_LEAVE`).

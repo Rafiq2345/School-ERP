@@ -97,7 +97,19 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
 
 ---
 
-## 8. Implementation Status
+## 8. Payroll Deduction Feed (Phase 3 Step 1 Foundation)
+
+<!-- [Screenshot Placeholder: Unpaid Leave Deduction Input Summary] -->
+
+- **Unpaid Leave Deduction Integration**: When an unpaid leave application (`Leave Without Pay` / `isPaid=false`) is final-approved, the system automatically checks for an active `PayrollDeductionPolicy` and creates a `PENDING` deduction input record (`PayrollDeductionInput`).
+- **Payroll Period Assignment**: Deduction records automatically derive the applicable monthly payroll period (e.g. `September 2026`) based on the leave start date.
+- **Contract-First Architecture**: In Phase 3 Step 1, the foundation captures the exact leave quantity, calculation basis (`CALENDAR_DAYS` / `WORKING_DAYS`), employee identity, and audit snapshot. The monetary `deductionAmount` remains `null` until the active Payroll calculation engine processes the feed.
+- **Paid Leave Safety**: Approved paid leaves (`CASUAL`, `ANNUAL`, `SICK`, etc.) never generate deduction input records.
+- **Reversals**: Deduction inputs can be transitioned to `REVERSED` with mandatory reason tracking if leave is modified or cancelled.
+
+---
+
+## 9. Implementation Status
 
 ### IMPLEMENTED & FULLY VERIFIED:
 - Leave Types Master (`/admin/hr/leaves/types`)
@@ -112,8 +124,10 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
 - Attendance Auto-Integration (`ON_LEAVE` badges & multi-shift isolation)
 - Monthly Register Matrix & Safety Controls (`/admin/attendance/employees/register`)
 - Comprehensive Governance Audit Trail (`/admin/hr/leaves/audit`)
+- Payroll Deduction Foundation — Phase 3 Step 1 (`PayrollDeductionPolicy`, `PayrollDeductionInput`, and `PayrollDeductionAuditLog`)
 
-### NOT YET IMPLEMENTED (Deferred to Phase 3):
-- Payroll Base Salary & Hourly Leave Deductions
-- Year-End Carry-Forward & Encashment Batch Wizard
-- Hardware Biometric Punch Auto-Sync
+### NOT YET IMPLEMENTED (Deferred to Next Steps / Future Phases):
+- Payroll Base Salary & Net Deduction Calculations (Phase 3 Step 2+)
+- Year-End Carry-Forward & Encashment Batch Wizard (Phase 3)
+- Hardware Biometric Punch Auto-Sync (Phase 3)
+
