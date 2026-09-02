@@ -109,7 +109,23 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
 
 ---
 
-## 9. Implementation Status
+
+---
+
+## 9. Attendance-to-Payroll Rules & Reconciliation Feed (Phase 3 Step 2)
+
+<!-- [Screenshot Placeholder: Attendance-to-Payroll Rules and Deductions Feed] -->
+
+- **Rules Engine (`/admin/hr/leaves/payroll-rules`)**:
+  - Administrators can define institutional and department-level deduction policies for late arrival accumulation, unexcused absences, and half-day penalties.
+  - The 6-level precedence hierarchy guarantees that specific individual overrides or departmental policies automatically take precedence over institutional defaults.
+- **Deduction & Reconciliation Feed (`/admin/hr/leaves/payroll-deductions`)**:
+  - Provides a real-time, contract-first feed of all pending payroll deductions arising from both approved unpaid leaves and attendance exceptions.
+  - **Reconciliation Preview**: Administrators can preview period deductions before committing, displaying total employees scanned, exceptions found, paid leaves skipped, and unpaid leaves deduplicated.
+  - **Period Reconciliation Execution**: Reconciles the active monthly payroll period, creating pending deductions and automatically reversing obsolete exceptions when historical attendance corrections occur.
+  - **Immutable Audit Trail**: Every deduction generation and reversal records actor attribution and calculation evidence.
+
+## 10. Implementation Status
 
 ### IMPLEMENTED & FULLY VERIFIED:
 - Leave Types Master (`/admin/hr/leaves/types`)
@@ -124,10 +140,12 @@ From the Approval Inbox or Application Detail view (`/admin/hr/leaves/applicatio
 - Attendance Auto-Integration (`ON_LEAVE` badges & multi-shift isolation)
 - Monthly Register Matrix & Safety Controls (`/admin/attendance/employees/register`)
 - Comprehensive Governance Audit Trail (`/admin/hr/leaves/audit`)
-- Payroll Deduction Foundation — Phase 3 Step 1 (`PayrollDeductionPolicy`, `PayrollDeductionInput`, and `PayrollDeductionAuditLog`)
+- Payroll Deduction Foundation — Phase 3 Step 1 (`PayrollDeductionPolicy`, `PayrollDeductionInput`, `PayrollDeductionAuditLog`)
+- Attendance-to-Payroll Rule Engine & Reconciliation — Phase 3 Step 2 (`/admin/hr/leaves/payroll-rules` & `/admin/hr/leaves/payroll-deductions`)
 
 ### NOT YET IMPLEMENTED (Deferred to Next Steps / Future Phases):
-- Payroll Base Salary & Net Deduction Calculations (Phase 3 Step 2+)
+- Payroll Base Salary & Net Deduction Calculations (Phase 3 Step 3+)
 - Year-End Carry-Forward & Encashment Batch Wizard (Phase 3)
 - Hardware Biometric Punch Auto-Sync (Phase 3)
+
 

@@ -273,7 +273,7 @@ describe('Phase 3 Step 1 — Payroll Deduction Foundation', () => {
 
     const result = await prisma.$transaction(async (tx) => {
       return PayrollDeductionInputService.generateForApprovedLeave(
-        tx, testTenantId, existingInput!.leaveApplicationId, null
+        tx, testTenantId, existingInput!.leaveApplicationId!, null
       );
     });
 
@@ -343,8 +343,7 @@ describe('Phase 3 Step 1 — Payroll Deduction Foundation', () => {
       testTenantId,
       input!.id,
       'Leave application cancelled by employee',
-      null,
-      'System Test'
+      null
     );
 
     expect(reversed.status).toBe('REVERSED');

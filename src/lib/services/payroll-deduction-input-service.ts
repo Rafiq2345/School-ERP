@@ -1,19 +1,17 @@
 /**
  * PayrollDeductionInputService
  *
- * Generates and manages auditable payroll deduction evidence records for
- * final-approved unpaid leave applications.
+ * Generates and manages auditable payroll deduction evidence records for:
+ *   1. Final-approved unpaid leave applications (LEAVE_APPLICATION)
+ *   2. Attendance-based exceptions (ATTENDANCE_ABSENCE, ATTENDANCE_LATE_ACCUMULATION, ATTENDANCE_HALF_DAY, etc.)
  *
  * Design invariants:
  *  - Only APPROVED + isPaid=false leave applications generate deduction inputs.
- *  - Draft, Pending, Rejected, Cancelled, or Sent Back → ZERO payroll impact.
- *  - One record per (tenantId + leaveApplicationId + payrollPeriodStart) — DB-enforced unique.
+ *  - Paid leave applications generate ZERO deduction records.
+ *  - One record per (tenantId + deductionSourceKey + payrollPeriodStart) — DB-enforced unique.
  *  - deductionAmount is always null here: the future Payroll module populates it.
- *  - Records are never hard-deleted. Only REVERSED or CANCELLED.
+ *  - Records are never hard-deleted. Only REVERSED, CANCELLED, or SUPERSEDED.
  *  - Every state change is recorded in PayrollDeductionAuditLog (append-only).
- *
- * Phase 3 Step 1: Payroll period = calendar month of the leave start date.
- * Future Phase: PayrollPeriod master table introduced by full Payroll module.
  */
 
 import { prisma } from '@/lib/db/prisma';
@@ -27,6 +25,7 @@ import type {
   DeductionCalculationBasis,
   DeductionInputStatus,
   DeductionAuditAction,
+  DeductionSourceType,
   PayrollDeductionInputQueryOptions,
 } from '@/lib/types/payroll-deduction';
 
@@ -36,17 +35,17 @@ export class PayrollDeductionInputService {
   // ---------------------------------------------------------
 
   /**
-   * Derives the calendar-month payroll period for a given leave start date.
+   * Derives the calendar-month payroll period for a given date.
    * Returns { periodStart, periodEnd, periodLabel }.
    * e.g. 2026-09-10 → { 2026-09-01, 2026-09-30, "September 2026" }
    */
-  public static derivePayrollPeriod(leaveStartDate: Date): {
+  public static derivePayrollPeriod(date: Date): {
     periodStart: Date;
     periodEnd: Date;
     periodLabel: string;
   } {
-    const y = leaveStartDate.getUTCFullYear();
-    const m = leaveStartDate.getUTCMonth(); // 0-indexed
+    const y = date.getUTCFullYear();
+    const m = date.getUTCMonth(); // 0-indexed
     const periodStart = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
     const periodEnd = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999)); // last day of month
     const monthNames = [
@@ -58,7 +57,7 @@ export class PayrollDeductionInputService {
   }
 
   /** Counts calendar days in a month for a given period. */
-  private static calendarDaysInPeriod(periodStart: Date, periodEnd: Date): number {
+  public static calendarDaysInPeriod(periodStart: Date, periodEnd: Date): number {
     const diffMs = periodEnd.getTime() - periodStart.getTime();
     return Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1;
   }
@@ -83,15 +82,21 @@ export class PayrollDeductionInputService {
     };
   }
 
-  private static formatInputDto(input: any): PayrollDeductionInputDto {
+  public static formatInputDto(input: any): PayrollDeductionInputDto {
     return {
       id: input.id,
       tenantId: input.tenantId,
       policyId: input.policyId,
       policyCode: input.policy?.policyCode,
       policyName: input.policy?.policyName,
-      leaveApplicationId: input.leaveApplicationId,
+      sourceType: (input.sourceType as DeductionSourceType) || 'LEAVE_APPLICATION',
+      leaveApplicationId: input.leaveApplicationId ?? null,
       applicationNumber: input.leaveApplication?.applicationNumber,
+      attendanceRecordId: input.attendanceRecordId ?? null,
+      attendanceDate: input.attendanceDate ? input.attendanceDate.toISOString().split('T')[0] : null,
+      shiftId: input.shiftId ?? null,
+      shiftName: input.shift?.name ?? null,
+      deductionSourceKey: input.deductionSourceKey ?? null,
       employeeId: input.employeeId,
       employeeName: input.employee
         ? `${input.employee.firstNameEn} ${input.employee.lastNameEn ?? ''}`.trim()
@@ -105,8 +110,8 @@ export class PayrollDeductionInputService {
       deductionScope: input.deductionScope,
       calculationBasis: input.calculationBasis as DeductionCalculationBasis,
       deductionDays: Number(input.deductionDays),
-      fixedDivisorUsed: input.fixedDivisorUsed !== null ? Number(input.fixedDivisorUsed) : null,
-      deductionAmount: input.deductionAmount !== null ? Number(input.deductionAmount) : null,
+      fixedDivisorUsed: input.fixedDivisorUsed !== null && input.fixedDivisorUsed !== undefined ? Number(input.fixedDivisorUsed) : null,
+      deductionAmount: input.deductionAmount !== null && input.deductionAmount !== undefined ? Number(input.deductionAmount) : null,
       currencyCode: input.currencyCode,
       status: input.status as DeductionInputStatus,
       reversalReason: input.reversalReason ?? null,
@@ -123,21 +128,9 @@ export class PayrollDeductionInputService {
   }
 
   // ---------------------------------------------------------
-  // CORE: Generate deduction input for a final-approved leave
+  // 1. GENERATE FOR APPROVED UNPAID LEAVE
   // ---------------------------------------------------------
 
-  /**
-   * Generates a PayrollDeductionInput for a final-approved unpaid leave application
-   * within an existing Prisma transaction.
-   *
-   * Safe-skip conditions (logs warning, no throw):
-   *  - Application is paid (isPaid=true)
-   *  - Application status is not APPROVED
-   *  - No active PayrollDeductionPolicy is configured for this tenant/leave type
-   *  - Deduction input already exists for this application+period (idempotency)
-   *
-   * Callers: LeaveApprovalService.processApproverAction (final approval transaction)
-   */
   public static async generateForApprovedLeave(
     tx: any,
     tenantId: string,
@@ -156,18 +149,18 @@ export class PayrollDeductionInputService {
       throw new NotFoundError(`LeaveApplication [${applicationId}] not found.`);
     }
 
+    const sourceKey = `LEAVE:${application.id}`;
     const baseResult: PayrollDeductionGenerationResult = {
       applicationId: application.id,
       applicationNumber: application.applicationNumber,
+      sourceKey,
       employeeId: application.employeeId,
       skipped: false,
+      wasIdempotent: false,
     };
 
     // Guard 1: Only APPROVED leave can generate payroll impact
     if (application.status !== 'APPROVED') {
-      console.warn(
-        `[PayrollDeductionInputService] Skipping: application ${application.applicationNumber} status=${application.status} (must be APPROVED)`
-      );
       return { ...baseResult, skipped: true, skipReason: `status=${application.status}` };
     }
 
@@ -179,7 +172,6 @@ export class PayrollDeductionInputService {
       return { ...baseResult, skipped: true, skipReason: 'isPaid=true' };
     }
 
-    // Resolve the payroll deduction policy (outside transaction for policy lookup)
     const policy = await PayrollDeductionPolicyService.resolveUnpaidLeavePolicy(
       tenantId,
       application.leaveTypeId
@@ -196,18 +188,21 @@ export class PayrollDeductionInputService {
       };
     }
 
-    // Derive the payroll period from leave start date
     const { periodStart, periodEnd, periodLabel } = this.derivePayrollPeriod(application.startDate);
-    const calendarDays = this.calendarDaysInPeriod(periodStart, periodEnd);
-    const deductionDays = Number(application.requestedDays);
-    const fixedDivisorUsed = policy.fixedDivisor ?? null;
+    const calDays = this.calendarDaysInPeriod(periodStart, periodEnd);
 
-    // Guard 3: Idempotency — check if deduction input already exists for this application+period
+    // Guard 3: Idempotency check
     const existing = await tx.payrollDeductionInput.findFirst({
       where: {
         tenantId,
-        leaveApplicationId: application.id,
+        deductionSourceKey: sourceKey,
         payrollPeriodStart: periodStart,
+      },
+      include: {
+        policy: true,
+        leaveApplication: true,
+        employee: true,
+        leaveType: true,
       },
     });
 
@@ -217,202 +212,242 @@ export class PayrollDeductionInputService {
       );
       return {
         ...baseResult,
-        skipped: false,
         wasIdempotent: true,
-        deductionInput: {
-          id: existing.id,
-          tenantId: existing.tenantId,
-          policyId: existing.policyId,
-          leaveApplicationId: existing.leaveApplicationId,
-          employeeId: existing.employeeId,
-          leaveTypeId: existing.leaveTypeId ?? null,
-          payrollPeriodStart: existing.payrollPeriodStart.toISOString().split('T')[0],
-          payrollPeriodEnd: existing.payrollPeriodEnd.toISOString().split('T')[0],
-          payrollPeriodLabel: existing.payrollPeriodLabel,
-          deductionScope: existing.deductionScope,
-          calculationBasis: existing.calculationBasis as DeductionCalculationBasis,
-          deductionDays: Number(existing.deductionDays),
-          fixedDivisorUsed: existing.fixedDivisorUsed !== null ? Number(existing.fixedDivisorUsed) : null,
-          deductionAmount: null,
-          currencyCode: existing.currencyCode,
-          status: existing.status as DeductionInputStatus,
-          reversalReason: null,
-          reversedAt: null,
-          reversedByUserId: null,
-          systemActorNote: existing.systemActorNote ?? null,
-          calculationEvidence: existing.calculationEvidence as DeductionCalculationEvidence,
-          createdByUserId: existing.createdByUserId ?? null,
-          processedAt: null,
-          createdAt: existing.createdAt.toISOString(),
-          updatedAt: existing.updatedAt.toISOString(),
-        },
+        deductionInput: this.formatInputDto(existing),
       };
     }
 
-    // Build calculation evidence (full audit trail of what was used)
+    const rawDeductionDays = Number(application.requestedDays);
+    const deductionDays =
+      policy.maxDeductionDaysPerPeriod !== null
+        ? Math.min(rawDeductionDays, policy.maxDeductionDaysPerPeriod)
+        : rawDeductionDays;
+
+    const actorUser = actorUserId
+      ? await tx.user.findUnique({ where: { id: actorUserId }, select: { id: true, username: true } })
+      : null;
+    const actorName = actorUser?.username ?? (actorUserId ? 'User' : 'System: Final Approval');
+
     const evidence: DeductionCalculationEvidence = {
+      sourceType: 'LEAVE_APPLICATION',
       leaveApplicationNumber: application.applicationNumber,
-      leaveTypeName: application.leaveType?.name ?? 'Unknown',
+      leaveTypeName: application.leaveType?.name ?? 'Unpaid Leave',
       leaveScope: application.leaveScope,
-      requestedDays: deductionDays,
+      requestedDays: rawDeductionDays,
       payrollPeriodStart: periodStart.toISOString().split('T')[0],
       payrollPeriodEnd: periodEnd.toISOString().split('T')[0],
       payrollPeriodLabel: periodLabel,
-      calendarDaysInPeriod: calendarDays,
-      calculationBasis: policy.calculationBasis as DeductionCalculationBasis,
-      fixedDivisorApplied: fixedDivisorUsed,
+      calendarDaysInPeriod: calDays,
+      calculationBasis: policy.calculationBasis,
+      fixedDivisorApplied: policy.fixedDivisor,
       policyCodeUsed: policy.policyCode,
       policyIdUsed: policy.id,
-      isPaid: application.isPaid,
+      policyNameUsed: policy.policyName,
+      isPaid: false,
       deductionDays,
-      deductionAmountNote:
-        'deductionAmount is null pending Payroll module salary data. Formula: (salary / divisor) x deductionDays',
+      deductionAmountNote: 'Base salary calculation deferred to Payroll module.',
       generatedAt: new Date().toISOString(),
-      generatedByActor: actorUserId
-        ? `User:${actorUserId}`
-        : 'System: LeaveApprovalService.finalApproval',
+      generatedByActor: actorName,
     };
 
-    // Create the deduction input inside the transaction
-    const deductionInput = await tx.payrollDeductionInput.create({
+    const created = await tx.payrollDeductionInput.create({
       data: {
         tenantId,
         policyId: policy.id,
+        sourceType: 'LEAVE_APPLICATION',
         leaveApplicationId: application.id,
+        deductionSourceKey: sourceKey,
         employeeId: application.employeeId,
         leaveTypeId: application.leaveTypeId,
         payrollPeriodStart: periodStart,
         payrollPeriodEnd: periodEnd,
         payrollPeriodLabel: periodLabel,
-        deductionScope: 'UNPAID_LEAVE',
+        deductionScope: policy.scope,
         calculationBasis: policy.calculationBasis,
         deductionDays,
-        fixedDivisorUsed: fixedDivisorUsed,
-        deductionAmount: null, // Populated by Payroll module when salary data is available
+        fixedDivisorUsed: policy.fixedDivisor,
+        deductionAmount: null,
         currencyCode: 'PKR',
         status: 'PENDING',
         systemActorNote: `System: Final Approval ${application.applicationNumber}`,
         calculationEvidence: evidence as any,
-        createdByUserId: actorUserId ?? null,
+        createdByUserId: actorUser?.id ?? null,
+      },
+      include: {
+        policy: true,
+        leaveApplication: true,
+        employee: true,
+        leaveType: true,
       },
     });
 
-    // Create immutable audit log entry
     await tx.payrollDeductionAuditLog.create({
       data: {
         tenantId,
-        deductionInputId: deductionInput.id,
+        deductionInputId: created.id,
         action: 'GENERATED',
-        actorUserId: actorUserId ?? null,
-        actorName: actorUserId ? `User:${actorUserId}` : 'System',
+        actorUserId: actorUser?.id ?? null,
+        actorName,
         previousStatus: 'N/A',
         newStatus: 'PENDING',
-        reason: `Auto-generated on final approval of ${application.applicationNumber}`,
+        reason: `Final approval of unpaid leave application ${application.applicationNumber}`,
         evidence: evidence as any,
       },
     });
 
-    console.info(
-      `[PayrollDeductionInputService] Generated deduction input ${deductionInput.id} for ${application.applicationNumber} — deductionDays=${deductionDays} period=${periodLabel} policy=${policy.policyCode}`
-    );
-
     return {
-      applicationId: application.id,
-      applicationNumber: application.applicationNumber,
-      employeeId: application.employeeId,
-      skipped: false,
+      ...baseResult,
       wasIdempotent: false,
-      deductionInput: {
-        id: deductionInput.id,
-        tenantId: deductionInput.tenantId,
-        policyId: deductionInput.policyId,
-        policyCode: policy.policyCode,
-        policyName: policy.policyName,
-        leaveApplicationId: deductionInput.leaveApplicationId,
-        applicationNumber: application.applicationNumber,
-        employeeId: deductionInput.employeeId,
-        leaveTypeId: deductionInput.leaveTypeId ?? null,
-        leaveTypeName: application.leaveType?.name ?? null,
-        payrollPeriodStart: periodStart.toISOString().split('T')[0],
-        payrollPeriodEnd: periodEnd.toISOString().split('T')[0],
-        payrollPeriodLabel: periodLabel,
-        deductionScope: 'UNPAID_LEAVE',
-        calculationBasis: policy.calculationBasis as DeductionCalculationBasis,
-        deductionDays,
-        fixedDivisorUsed,
-        deductionAmount: null,
-        currencyCode: 'PKR',
-        status: 'PENDING',
-        reversalReason: null,
-        reversedAt: null,
-        reversedByUserId: null,
-        systemActorNote: `System: Final Approval ${application.applicationNumber}`,
-        calculationEvidence: evidence,
-        createdByUserId: actorUserId ?? null,
-        processedAt: null,
-        createdAt: deductionInput.createdAt.toISOString(),
-        updatedAt: deductionInput.updatedAt.toISOString(),
-      },
+      deductionInput: this.formatInputDto(created),
     };
   }
 
   // ---------------------------------------------------------
-  // REVERSAL
+  // 2. GENERATE / RECONCILE FOR ATTENDANCE EXCEPTION
   // ---------------------------------------------------------
 
-  /**
-   * Reverses a PayrollDeductionInput (e.g. when leave is later cancelled or revoked).
-   * Creates an immutable audit log entry. The original record is preserved with status=REVERSED.
-   * Financial records are never hard-deleted.
-   */
+  public static async generateAttendanceDeductionInput(
+    tx: any,
+    tenantId: string,
+    params: {
+      sourceType: DeductionSourceType;
+      sourceKey: string;
+      employeeId: string;
+      policyId: string;
+      attendanceRecordId?: string | null;
+      attendanceDate: Date;
+      shiftId?: string | null;
+      deductionDays: number;
+      evidence: DeductionCalculationEvidence;
+      actorUserId?: string | null;
+      actorName?: string | null;
+      systemActorNote?: string | null;
+    }
+  ): Promise<PayrollDeductionInputDto> {
+    const { periodStart, periodEnd, periodLabel } = this.derivePayrollPeriod(params.attendanceDate);
+
+    // Idempotency check
+    const existing = await tx.payrollDeductionInput.findFirst({
+      where: {
+        tenantId,
+        deductionSourceKey: params.sourceKey,
+        payrollPeriodStart: periodStart,
+      },
+      include: {
+        policy: true,
+        employee: true,
+        shift: true,
+      },
+    });
+
+    if (existing) {
+      return this.formatInputDto(existing);
+    }
+
+    const policy = await tx.payrollDeductionPolicy.findUnique({
+      where: { id: params.policyId },
+    });
+    if (!policy) throw new NotFoundError(`PayrollDeductionPolicy [${params.policyId}] not found.`);
+
+    const actorUser = params.actorUserId
+      ? await tx.user.findUnique({ where: { id: params.actorUserId }, select: { id: true, username: true } })
+      : null;
+    const actorName = actorUser?.username ?? params.actorName ?? 'System: Attendance Reconciliation';
+
+    const created = await tx.payrollDeductionInput.create({
+      data: {
+        tenantId,
+        policyId: policy.id,
+        sourceType: params.sourceType,
+        attendanceRecordId: params.attendanceRecordId ?? null,
+        attendanceDate: params.attendanceDate,
+        shiftId: params.shiftId ?? null,
+        deductionSourceKey: params.sourceKey,
+        employeeId: params.employeeId,
+        payrollPeriodStart: periodStart,
+        payrollPeriodEnd: periodEnd,
+        payrollPeriodLabel: periodLabel,
+        deductionScope: policy.scope,
+        calculationBasis: policy.calculationBasis,
+        deductionDays: params.deductionDays,
+        fixedDivisorUsed: policy.fixedDivisor,
+        deductionAmount: null,
+        currencyCode: 'PKR',
+        status: 'PENDING',
+        systemActorNote: params.systemActorNote ?? 'Attendance Reconciliation Engine',
+        calculationEvidence: params.evidence as any,
+        createdByUserId: actorUser?.id ?? null,
+      },
+      include: {
+        policy: true,
+        employee: true,
+        shift: true,
+      },
+    });
+
+    await tx.payrollDeductionAuditLog.create({
+      data: {
+        tenantId,
+        deductionInputId: created.id,
+        action: 'GENERATED',
+        actorUserId: actorUser?.id ?? null,
+        actorName,
+        previousStatus: 'N/A',
+        newStatus: 'PENDING',
+        reason: `Attendance exception generated (${params.sourceType})`,
+        evidence: params.evidence as any,
+      },
+    });
+
+    return this.formatInputDto(created);
+  }
+
+  // ---------------------------------------------------------
+  // 3. REVERSAL / SUPERSEDING (NEVER HARD DELETE)
+  // ---------------------------------------------------------
+
   public static async reverseDeductionInput(
     tenantId: string,
     inputId: string,
     reason: string,
-    actorUserId?: string | null,
-    actorName?: string | null
+    actorUserId?: string | null
   ): Promise<PayrollDeductionInputDto> {
-    if (!reason || reason.trim().length < 3) {
-      throw new ValidationError('A meaningful reversal reason is required (minimum 3 characters).');
+    if (!reason || !reason.trim()) {
+      throw new ValidationError('A reversal reason is required.');
     }
 
-    const existing = await prisma.payrollDeductionInput.findFirst({
-      where: { id: inputId, tenantId },
-      include: {
-        policy: true,
-        leaveApplication: { select: { applicationNumber: true } },
-        employee: { select: { id: true, firstNameEn: true, lastNameEn: true, employeeNo: true } },
-        leaveType: { select: { name: true } },
-        auditLogs: { orderBy: { createdAt: 'asc' } },
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      const input = await tx.payrollDeductionInput.findFirst({
+        where: { id: inputId, tenantId },
+        include: { policy: true, leaveApplication: true, employee: true, leaveType: true, shift: true },
+      });
 
-    if (!existing) throw new NotFoundError(`PayrollDeductionInput [${inputId}] not found.`);
+      if (!input) throw new NotFoundError(`PayrollDeductionInput [${inputId}] not found.`);
 
-    if (existing.status === 'REVERSED' || existing.status === 'CANCELLED') {
-      throw new ValidationError(
-        `PayrollDeductionInput [${inputId}] is already ${existing.status} and cannot be reversed again.`
-      );
-    }
+      if (input.status === 'PROCESSED') {
+        throw new ValidationError(
+          `Cannot reverse deduction input [${input.id}]: it has already been PROCESSED by the Payroll module.`
+        );
+      }
 
-    const previousStatus = existing.status;
+      if (input.status === 'REVERSED') {
+        return this.formatInputDto(input);
+      }
 
-    const reversed = await prisma.$transaction(async (tx) => {
+      const actorUser = actorUserId
+        ? await tx.user.findUnique({ where: { id: actorUserId }, select: { id: true, username: true } })
+        : null;
+      const actorName = actorUser?.username ?? (actorUserId ? 'User' : 'System: Reversal');
+
       const updated = await tx.payrollDeductionInput.update({
         where: { id: inputId },
         data: {
           status: 'REVERSED',
           reversalReason: reason.trim(),
           reversedAt: new Date(),
-          reversedByUserId: actorUserId ?? null,
+          reversedByUserId: actorUser?.id ?? null,
         },
-        include: {
-          policy: true,
-          leaveApplication: { select: { applicationNumber: true } },
-          employee: { select: { id: true, firstNameEn: true, lastNameEn: true, employeeNo: true } },
-          leaveType: { select: { name: true } },
-          auditLogs: { orderBy: { createdAt: 'asc' } },
-        },
+        include: { policy: true, leaveApplication: true, employee: true, leaveType: true, shift: true },
       });
 
       await tx.payrollDeductionAuditLog.create({
@@ -420,81 +455,126 @@ export class PayrollDeductionInputService {
           tenantId,
           deductionInputId: inputId,
           action: 'REVERSED',
-          actorUserId: actorUserId ?? null,
-          actorName: actorName ?? (actorUserId ? `User:${actorUserId}` : 'System'),
-          previousStatus,
+          actorUserId: actorUser?.id ?? null,
+          actorName,
+          previousStatus: input.status,
           newStatus: 'REVERSED',
           reason: reason.trim(),
-          evidence: { reversedAt: new Date().toISOString(), reason: reason.trim() } as any,
+          evidence: {
+            reversedAt: new Date().toISOString(),
+            reversedBy: actorName,
+            originalEvidence: input.calculationEvidence,
+          },
         },
       });
 
-      return updated;
+      return this.formatInputDto(updated);
+    });
+  }
+
+  public static async supersedeDeductionInput(
+    tx: any,
+    tenantId: string,
+    inputId: string,
+    reason: string,
+    replacementSourceKey: string,
+    actorName: string = 'System: Attendance Reconciliation'
+  ): Promise<PayrollDeductionInputDto> {
+    const input = await tx.payrollDeductionInput.findFirst({
+      where: { id: inputId, tenantId },
+      include: { policy: true, leaveApplication: true, employee: true, leaveType: true, shift: true },
     });
 
-    return this.formatInputDto(reversed);
+    if (!input) throw new NotFoundError(`PayrollDeductionInput [${inputId}] not found.`);
+
+    const updated = await tx.payrollDeductionInput.update({
+      where: { id: inputId },
+      data: {
+        status: 'SUPERSEDED',
+        reversalReason: reason,
+        reversedAt: new Date(),
+      },
+      include: { policy: true, leaveApplication: true, employee: true, leaveType: true, shift: true },
+    });
+
+    await tx.payrollDeductionAuditLog.create({
+      data: {
+        tenantId,
+        deductionInputId: inputId,
+        action: 'SUPERSEDED',
+        actorName,
+        previousStatus: input.status,
+        newStatus: 'SUPERSEDED',
+        reason,
+        evidence: {
+          supersededBy: replacementSourceKey,
+          supersededAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return this.formatInputDto(updated);
   }
 
   // ---------------------------------------------------------
-  // QUERIES
+  // 4. QUERIES
   // ---------------------------------------------------------
 
-  public static async listDeductionInputs(
-    options: PayrollDeductionInputQueryOptions
-  ): Promise<{ data: PayrollDeductionInputDto[]; total: number }> {
+  public static async queryInputs(options: PayrollDeductionInputQueryOptions): Promise<{
+    data: PayrollDeductionInputDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
     const {
-      tenantId, employeeId, status, payrollPeriodStart,
-      leaveApplicationId, leaveTypeId, policyId,
-      page = 1, pageSize = 20,
+      tenantId,
+      employeeId,
+      sourceType,
+      status,
+      payrollPeriodStart,
+      leaveApplicationId,
+      attendanceDate,
+      leaveTypeId,
+      policyId,
+      page = 1,
+      pageSize = 50,
     } = options;
 
-    const where: any = { tenantId };
-    if (employeeId) where.employeeId = employeeId;
-    if (status) where.status = status;
-    if (leaveApplicationId) where.leaveApplicationId = leaveApplicationId;
-    if (leaveTypeId) where.leaveTypeId = leaveTypeId;
-    if (policyId) where.policyId = policyId;
-    if (payrollPeriodStart) {
-      const d = new Date(payrollPeriodStart);
-      where.payrollPeriodStart = { gte: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)) };
-    }
+    const where: any = {
+      tenantId,
+      ...(employeeId && { employeeId }),
+      ...(sourceType && { sourceType }),
+      ...(status && { status }),
+      ...(payrollPeriodStart && { payrollPeriodStart: new Date(payrollPeriodStart) }),
+      ...(leaveApplicationId && { leaveApplicationId }),
+      ...(attendanceDate && { attendanceDate: new Date(attendanceDate) }),
+      ...(leaveTypeId && { leaveTypeId }),
+      ...(policyId && { policyId }),
+    };
 
-    const [data, total] = await prisma.$transaction([
+    const [records, total] = await Promise.all([
       prisma.payrollDeductionInput.findMany({
         where,
         include: {
           policy: true,
           leaveApplication: { select: { applicationNumber: true } },
-          employee: { select: { id: true, firstNameEn: true, lastNameEn: true, employeeNo: true } },
+          employee: { select: { firstNameEn: true, lastNameEn: true, employeeNo: true } },
           leaveType: { select: { name: true } },
+          shift: { select: { name: true } },
           auditLogs: { orderBy: { createdAt: 'asc' } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ payrollPeriodStart: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
       prisma.payrollDeductionInput.count({ where }),
     ]);
 
-    return { data: data.map(this.formatInputDto), total };
-  }
-
-  public static async getDeductionInputById(
-    tenantId: string,
-    id: string
-  ): Promise<PayrollDeductionInputDto> {
-    const input = await prisma.payrollDeductionInput.findFirst({
-      where: { id, tenantId },
-      include: {
-        policy: true,
-        leaveApplication: { select: { applicationNumber: true } },
-        employee: { select: { id: true, firstNameEn: true, lastNameEn: true, employeeNo: true } },
-        leaveType: { select: { name: true } },
-        auditLogs: { orderBy: { createdAt: 'asc' } },
-      },
-    });
-
-    if (!input) throw new NotFoundError(`PayrollDeductionInput [${id}] not found.`);
-    return this.formatInputDto(input);
+    return {
+      data: records.map(this.formatInputDto),
+      total,
+      page,
+      pageSize,
+    };
   }
 }

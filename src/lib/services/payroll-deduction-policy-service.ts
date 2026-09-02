@@ -4,7 +4,7 @@
  * Manages configurable payroll deduction rules.
  * Rules are data — not hardcoded. Administrators configure rules per tenant/leave type.
  *
- * Phase 3 Step 1: Foundation for Attendance-to-Payroll deduction integration.
+ * Phase 3 Step 2: Configurable Attendance-to-Payroll deduction integration.
  * Supports: UNPAID_LEAVE, LATE_ARRIVALS, EARLY_DEPARTURE, SHORT_HOURS, HALF_DAY, CUSTOM scopes.
  */
 
@@ -14,6 +14,7 @@ import type {
   PayrollDeductionPolicyDto,
   CreatePayrollDeductionPolicyDto,
   UpdatePayrollDeductionPolicyDto,
+  PayrollDeductionPolicyAssignmentDto,
   DeductionPolicyScope,
   DeductionCalculationBasis,
 } from '@/lib/types/payroll-deduction';
@@ -23,7 +24,7 @@ export class PayrollDeductionPolicyService {
   // FORMATTERS
   // ---------------------------------------------------------
 
-  private static formatPolicyDto(p: any): PayrollDeductionPolicyDto {
+  public static formatPolicyDto(p: any): PayrollDeductionPolicyDto {
     return {
       id: p.id,
       tenantId: p.tenantId,
@@ -33,16 +34,54 @@ export class PayrollDeductionPolicyService {
       leaveTypeId: p.leaveTypeId ?? null,
       leaveTypeName: p.leaveType?.name ?? null,
       calculationBasis: p.calculationBasis as DeductionCalculationBasis,
-      fixedDivisor: p.fixedDivisor !== null ? Number(p.fixedDivisor) : null,
+      fixedDivisor: p.fixedDivisor !== null && p.fixedDivisor !== undefined ? Number(p.fixedDivisor) : null,
       lateTriggerCount: p.lateTriggerCount ?? null,
-      maxDeductionDaysPerPeriod: p.maxDeductionDaysPerPeriod !== null ? Number(p.maxDeductionDaysPerPeriod) : null,
+      lateGraceMinutes: p.lateGraceMinutes !== null && p.lateGraceMinutes !== undefined ? Number(p.lateGraceMinutes) : null,
+      lateDeductionUnit: p.lateDeductionUnit !== null && p.lateDeductionUnit !== undefined ? Number(p.lateDeductionUnit) : null,
+      absenceDeductionUnit: p.absenceDeductionUnit !== null && p.absenceDeductionUnit !== undefined ? Number(p.absenceDeductionUnit) : null,
+      halfDayDeductionUnit: p.halfDayDeductionUnit !== null && p.halfDayDeductionUnit !== undefined ? Number(p.halfDayDeductionUnit) : null,
+      earlyExitGraceMinutes: p.earlyExitGraceMinutes !== null && p.earlyExitGraceMinutes !== undefined ? Number(p.earlyExitGraceMinutes) : null,
+      earlyExitDeductionUnit: p.earlyExitDeductionUnit !== null && p.earlyExitDeductionUnit !== undefined ? Number(p.earlyExitDeductionUnit) : null,
+      isDefault: p.isDefault ?? false,
+      maxDeductionDaysPerPeriod: p.maxDeductionDaysPerPeriod !== null && p.maxDeductionDaysPerPeriod !== undefined ? Number(p.maxDeductionDaysPerPeriod) : null,
       notes: p.notes ?? null,
       isActive: p.isActive,
-      effectiveFrom: p.effectiveFrom.toISOString(),
+      effectiveFrom: p.effectiveFrom ? p.effectiveFrom.toISOString() : new Date().toISOString(),
       effectiveTo: p.effectiveTo ? p.effectiveTo.toISOString() : null,
       createdByUserId: p.createdByUserId ?? null,
-      createdAt: p.createdAt.toISOString(),
-      updatedAt: p.updatedAt.toISOString(),
+      createdAt: p.createdAt ? p.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: p.updatedAt ? p.updatedAt.toISOString() : new Date().toISOString(),
+    };
+  }
+
+  public static formatAssignmentDto(a: any): PayrollDeductionPolicyAssignmentDto {
+    return {
+      id: a.id,
+      tenantId: a.tenantId,
+      policyId: a.policyId,
+      policyCode: a.policy?.policyCode,
+      policyName: a.policy?.policyName,
+      assignmentType: a.assignmentType,
+      employeeId: a.employeeId ?? null,
+      employeeName: a.employee
+        ? `${a.employee.firstNameEn} ${a.employee.lastNameEn ?? ''}`.trim()
+        : undefined,
+      employeeNo: a.employee?.employeeNo,
+      departmentId: a.departmentId ?? null,
+      departmentName: a.department?.name,
+      designationId: a.designationId ?? null,
+      designationName: a.designation?.name,
+      employmentTypeId: a.employmentTypeId ?? null,
+      employmentTypeName: a.employmentType?.name,
+      employeeCategoryId: a.employeeCategoryId ?? null,
+      employeeCategoryName: a.employeeCategory?.name,
+      isOverride: a.isOverride,
+      priority: a.priority,
+      effectiveFrom: a.effectiveFrom ? a.effectiveFrom.toISOString() : new Date().toISOString(),
+      effectiveTo: a.effectiveTo ? a.effectiveTo.toISOString() : null,
+      isActive: a.isActive,
+      createdAt: a.createdAt ? a.createdAt.toISOString() : new Date().toISOString(),
+      updatedAt: a.updatedAt ? a.updatedAt.toISOString() : new Date().toISOString(),
     };
   }
 
@@ -50,16 +89,6 @@ export class PayrollDeductionPolicyService {
   // RESOLVE: find most specific active policy for a leave type
   // ---------------------------------------------------------
 
-  /**
-   * Resolves the most specific active PayrollDeductionPolicy for an UNPAID_LEAVE
-   * for the given tenant and optionally leave type.
-   *
-   * Resolution order (most specific wins):
-   *   1. Active policy matching (tenantId + leaveTypeId + scope=UNPAID_LEAVE)
-   *   2. Active policy matching (tenantId + leaveTypeId=null + scope=UNPAID_LEAVE) — catch-all
-   *
-   * Returns null if no policy is configured (system will skip deduction generation).
-   */
   public static async resolveUnpaidLeavePolicy(
     tenantId: string,
     leaveTypeId: string,
@@ -142,6 +171,13 @@ export class PayrollDeductionPolicyService {
         calculationBasis: input.calculationBasis,
         fixedDivisor: input.fixedDivisor ?? null,
         lateTriggerCount: input.lateTriggerCount ?? null,
+        lateGraceMinutes: input.lateGraceMinutes ?? undefined,
+        lateDeductionUnit: input.lateDeductionUnit ?? undefined,
+        absenceDeductionUnit: input.absenceDeductionUnit ?? undefined,
+        halfDayDeductionUnit: input.halfDayDeductionUnit ?? undefined,
+        earlyExitGraceMinutes: input.earlyExitGraceMinutes ?? undefined,
+        earlyExitDeductionUnit: input.earlyExitDeductionUnit ?? undefined,
+        isDefault: input.isDefault ?? false,
         maxDeductionDaysPerPeriod: input.maxDeductionDaysPerPeriod ?? null,
         notes: input.notes ?? null,
         isActive: input.isActive ?? true,
@@ -170,22 +206,30 @@ export class PayrollDeductionPolicyService {
       throw new ValidationError('fixedDivisor is required when calculationBasis is FIXED_DIVISOR.');
     }
 
-    const updated = await prisma.payrollDeductionPolicy.update({
+    const updateData: any = {};
+    if (input.policyCode !== undefined) updateData.policyCode = input.policyCode.trim().toUpperCase();
+    if (input.policyName !== undefined) updateData.policyName = input.policyName.trim();
+    if (input.scope !== undefined) updateData.scope = input.scope;
+    if (input.leaveTypeId !== undefined) updateData.leaveTypeId = input.leaveTypeId;
+    if (input.calculationBasis !== undefined) updateData.calculationBasis = input.calculationBasis;
+    if (input.fixedDivisor !== undefined) updateData.fixedDivisor = input.fixedDivisor;
+    if (input.lateTriggerCount !== undefined) updateData.lateTriggerCount = input.lateTriggerCount;
+    if (input.lateGraceMinutes !== undefined) updateData.lateGraceMinutes = input.lateGraceMinutes;
+    if (input.lateDeductionUnit !== undefined) updateData.lateDeductionUnit = input.lateDeductionUnit;
+    if (input.absenceDeductionUnit !== undefined) updateData.absenceDeductionUnit = input.absenceDeductionUnit;
+    if (input.halfDayDeductionUnit !== undefined) updateData.halfDayDeductionUnit = input.halfDayDeductionUnit;
+    if (input.earlyExitGraceMinutes !== undefined) updateData.earlyExitGraceMinutes = input.earlyExitGraceMinutes;
+    if (input.earlyExitDeductionUnit !== undefined) updateData.earlyExitDeductionUnit = input.earlyExitDeductionUnit;
+    if (input.isDefault !== undefined) updateData.isDefault = input.isDefault;
+    if (input.maxDeductionDaysPerPeriod !== undefined) updateData.maxDeductionDaysPerPeriod = input.maxDeductionDaysPerPeriod;
+    if (input.notes !== undefined) updateData.notes = input.notes;
+    if (input.isActive !== undefined) updateData.isActive = input.isActive;
+    if (input.effectiveFrom !== undefined) updateData.effectiveFrom = new Date(input.effectiveFrom);
+    if (input.effectiveTo !== undefined) updateData.effectiveTo = input.effectiveTo ? new Date(input.effectiveTo) : null;
+
+    const updated = await (prisma.payrollDeductionPolicy.update as any)({
       where: { id },
-      data: {
-        ...(input.policyCode !== undefined && { policyCode: input.policyCode.trim().toUpperCase() }),
-        ...(input.policyName !== undefined && { policyName: input.policyName.trim() }),
-        ...(input.scope !== undefined && { scope: input.scope }),
-        ...(input.leaveTypeId !== undefined && { leaveTypeId: input.leaveTypeId }),
-        ...(input.calculationBasis !== undefined && { calculationBasis: input.calculationBasis }),
-        ...(input.fixedDivisor !== undefined && { fixedDivisor: input.fixedDivisor }),
-        ...(input.lateTriggerCount !== undefined && { lateTriggerCount: input.lateTriggerCount }),
-        ...(input.maxDeductionDaysPerPeriod !== undefined && { maxDeductionDaysPerPeriod: input.maxDeductionDaysPerPeriod }),
-        ...(input.notes !== undefined && { notes: input.notes }),
-        ...(input.isActive !== undefined && { isActive: input.isActive }),
-        ...(input.effectiveFrom !== undefined && { effectiveFrom: new Date(input.effectiveFrom) }),
-        ...(input.effectiveTo !== undefined && { effectiveTo: input.effectiveTo ? new Date(input.effectiveTo) : null }),
-      },
+      data: updateData,
       include: { leaveType: { select: { name: true } } },
     });
     return this.formatPolicyDto(updated);

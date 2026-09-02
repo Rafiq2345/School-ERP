@@ -1,0 +1,33 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { PayrollDeductionPolicyService } from '@/lib/services/payroll-deduction-policy-service';
+import { resolveAuthContext } from '@/lib/auth/server-auth';
+
+export async function GET(request: NextRequest) {
+  try {
+    const tenantId = request.headers.get('x-tenant-id') || 'tenant-sch-001';
+    const data = await PayrollDeductionPolicyService.listPolicies(tenantId);
+    return NextResponse.json({ success: true, data });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: { message: error.message || 'Failed to fetch payroll rules' } },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const tenantId = request.headers.get('x-tenant-id') || 'tenant-sch-001';
+    const auth = await resolveAuthContext(request).catch(() => null);
+    const userId = request.headers.get('x-user-id') || auth?.userId || undefined;
+    const body = await request.json();
+
+    const data = await PayrollDeductionPolicyService.createPolicy(tenantId, body, userId);
+    return NextResponse.json({ success: true, data });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: { message: error.message || 'Failed to create payroll rule' } },
+      { status: 400 }
+    );
+  }
+}

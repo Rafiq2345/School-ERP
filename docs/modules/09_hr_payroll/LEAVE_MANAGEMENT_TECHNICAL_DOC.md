@@ -211,3 +211,49 @@ flowchart TD
 - **Ledger Verification**: `Allocated: 3.0d`, `Used: 0.5d`, `Available: 2.5d`, exactly **1** `LEAVE_USAGE` record (`amount: -0.5`).
 - **Attendance Verification**: Morning Shift $\\longrightarrow$ `ON_LEAVE` (`Casual Leave`, `LR-2026-000148`), Afternoon Shift $\\longrightarrow$ `PRESENT` ($4\\text{h}$ worked).
 - **Monthly Register**: September 2026 Day 2 shows `LV` badge, `leave = 0.5d`, `absent = 0d`.
+
+---
+
+## 5. Attendance-to-Payroll Rule Engine & Reconciliation (Phase 3 Step 2)
+
+### A. Data Models & Entities
+1. **`PayrollDeductionPolicy` (Extended)**:
+   - Configurable rule parameters:
+     - `lateTriggerCount`: Number of late arrivals before triggering deduction (e.g. 3).
+     - `lateGraceMinutes`: Grace threshold in minutes before flagging late (e.g. 15m).
+     - `lateDeductionUnit`: Fractional or full-day deduction unit applied per cycle (e.g. 1.00d, 0.50d).
+     - `absenceDeductionUnit`: Configurable penalty per unexcused full-day absence (default 1.00d).
+     - `halfDayDeductionUnit`: Configurable penalty per half-day absence (default 0.50d).
+     - `isDefault`: Boolean flag designating tenant-wide institutional fallback policy.
+2. **`PayrollDeductionPolicyAssignment` (New)**:
+   - Implements targeted rule assignment across the 6-level hierarchy:
+     - Priority 1000: `INDIVIDUAL_OVERRIDE` (`employeeId` + `isOverride=true`)
+     - Priority 500: `EMPLOYEE` (`employeeId`)
+     - Priority 300: `DEPARTMENT` (`departmentId`)
+     - Priority 200: `DESIGNATION` (`designationId`)
+     - Priority 100: `EMPLOYMENT_TYPE` / `EMPLOYEE_CATEGORY` (`employmentTypeId` / `employeeCategoryId`)
+     - Priority 0: `INSTITUTIONAL_DEFAULT` (`isDefault=true` fallback)
+3. **`PayrollDeductionInput` (Extended)**:
+   - Source discrimination: `sourceType` (`LEAVE_APPLICATION`, `ATTENDANCE_ABSENCE`, `ATTENDANCE_LATE_ACCUMULATION`, `ATTENDANCE_HALF_DAY`, `ATTENDANCE_EARLY_DEPARTURE`, `ATTENDANCE_SHORT_HOURS`).
+   - Attendance context: `attendanceRecordId`, `attendanceDate`, `shiftId`, `deductionSourceKey`.
+   - Unique DB constraint: `@@unique([tenantId, deductionSourceKey, payrollPeriodStart])`.
+   - Statuses: `PENDING`, `PROCESSED`, `REVERSED`, `CANCELLED`, `SUPERSEDED`.
+
+### B. Business Rules & Reconciliation Invariants
+1. **Paid Leave Safety Invariant**:
+   - Approved paid leaves (e.g. Fatima Zahra `EMP-102` Casual Leave `LR-2026-000148`) strictly generate **0** deduction inputs.
+2. **Unpaid Leave Deduplication**:
+   - Shifts covered by approved unpaid leave applications (`isPaid = false`) have their deduction input generated via the Step 1 approval hook (`sourceType = 'LEAVE_APPLICATION'`). The Step 2 attendance engine recognizes this link and skips duplicate absence deduction generation.
+3. **Multi-Shift Segment Isolation & Fractional Weights**:
+   - For employees scheduled across $N$ shifts on a day, each shift carries a segment weight of $w = 1/N$.
+   - An unexcused absence on 1 of 2 shifts generates exactly $0.5\text{d}$ deduction ($1.0 \times 0.5$).
+   - An unexcused absence on 1 of 3 shifts generates exactly $0.33\text{d}$ deduction ($1.0 \times 1/3$).
+4. **Late Arrival Accumulation & Monthly Period Isolation**:
+   - Late occurrences accumulate strictly within their calendar month payroll period (e.g. `September 2026`).
+   - For every completed trigger cycle ($K$ lates, where $K = \text{lateTriggerCount}$), a deterministic `ATTENDANCE_LATE_ACCUMULATION` deduction input is generated with detailed calculation evidence citing the late dates and durations.
+   - Counters reset cleanly at the start of each new month.
+5. **Reconciliation & Reversal on Corrections**:
+   - When an attendance record is corrected from `ABSENT` to `PRESENT`, running period reconciliation transitions the prior deduction input to `REVERSED` with an immutable audit entry and reason tracking.
+   - Historical deduction records are never hard-deleted.
+6. **Strict Idempotency**:
+   - Re-running reconciliation multiple times produces zero duplicate deduction inputs.
