@@ -10,6 +10,7 @@ import { LeaveAuditService } from './leave-audit-service';
 import { LeaveWorkflowService } from './leave-workflow-service';
 import { LeaveEntitlementService } from './leave-entitlement-service';
 import { LeaveAttendanceIntegrationService } from './leave-attendance-integration-service';
+import { PayrollDeductionInputService } from './payroll-deduction-input-service';
 
 export class LeaveApprovalService {
   /**
@@ -576,6 +577,17 @@ export class LeaveApprovalService {
             application.id,
             validActorUserId
           );
+
+          // Phase 3 Step 1: Generate payroll deduction input for unpaid leave.
+          // Paid leave is silently skipped inside the service (no crash, no side-effect).
+          if (!application.isPaid) {
+            await PayrollDeductionInputService.generateForApprovedLeave(
+              tx,
+              tenantId,
+              application.id,
+              validActorUserId
+            );
+          }
 
           actionMessage = `Application ${application.applicationNumber} has been fully APPROVED, deducted from entitlement ledger, and integrated with attendance.`;
         }

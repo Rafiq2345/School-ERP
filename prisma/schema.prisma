@@ -101,6 +101,11 @@ model Tenant {
   leaveRequestApprovalSteps LeaveRequestApprovalStep[]
   leaveApprovalHistories    LeaveApprovalActionHistory[]
 
+  // Phase 3: Payroll Deduction Foundation
+  payrollDeductionPolicies  PayrollDeductionPolicy[]
+  payrollDeductionInputs    PayrollDeductionInput[]
+  payrollDeductionAuditLogs PayrollDeductionAuditLog[]
+
   @@map("tenants")
 }
 
@@ -170,6 +175,12 @@ model User {
   leaveStepActions        LeaveRequestApprovalStep[]   @relation("StepActionUser")
   leaveWorkflowSteps      LeaveApprovalWorkflowStep[]  @relation("WorkflowStepApprover")
   leaveActionHistories    LeaveApprovalActionHistory[] @relation("LeaveActionActor")
+
+  // Phase 3: Payroll Deduction Foundation
+  payrollDeductionPoliciesCreated  PayrollDeductionPolicy[]    @relation("DeductionPolicyCreator")
+  payrollDeductionInputsCreated    PayrollDeductionInput[]     @relation("DeductionInputCreator")
+  payrollDeductionReversals        PayrollDeductionInput[]     @relation("DeductionInputReverser")
+  payrollDeductionAuditLogs        PayrollDeductionAuditLog[]  @relation("DeductionAuditActor")
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -861,6 +872,8 @@ model LeaveType {
   ledgerTransactions        LeaveLedgerTransaction[]
   leaveApplications         LeaveApplication[]
   leaveWorkflowRules        LeaveApprovalWorkflowRule[]
+  payrollDeductionPolicies  PayrollDeductionPolicy[]
+  payrollDeductionInputs    PayrollDeductionInput[]
 
   @@unique([tenantId, code])
   @@index([tenantId, isActive])
@@ -1615,6 +1628,7 @@ model Employee {
   leaveLedgerTransactions LeaveLedgerTransaction[]
   leaveApplications       LeaveApplication[]
   leaveWorkflowRules      LeaveApprovalWorkflowRule[]
+  payrollDeductionInputs  PayrollDeductionInput[]
 
   @@unique([tenantId, employeeNo])
   @@index([tenantId, currentStatus])
@@ -2009,6 +2023,7 @@ model LeaveApplication {
   dates            LeaveApplicationDate[]
   shifts           LeaveApplicationShift[]
   approvalInstance LeaveRequestApprovalInstance?
+  payrollDeductionInputs PayrollDeductionInput[]
 
   @@unique([tenantId, applicationNumber])
   @@index([tenantId, employeeId, startDate, endDate])
@@ -2248,4 +2263,142 @@ model LeaveApprovalActionHistory {
   @@index([tenantId, instanceId])
   @@index([tenantId, createdAt])
   @@map("leave_approval_action_histories")
+}
+
+// =============================================================
+// 16. PAYROLL DEDUCTION FOUNDATION (PHASE 3 STEP 1)
+// =============================================================
+
+/// Configurable rule defining HOW a payroll deduction is calculated for
+/// a given attendance/leave event type. Rules are data — not hardcoded.
+model PayrollDeductionPolicy {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  policyCode       String    @map("policy_code") // e.g. UNPAID_LEAVE_DEDUCTION, LATE_ARRIVAL_DEDUCTION
+  policyName       String    @map("policy_name")
+  scope            String    @map("scope") // UNPAID_LEAVE | LATE_ARRIVALS | EARLY_DEPARTURE | SHORT_HOURS | HALF_DAY | CUSTOM
+
+  // Leave-type specificity — null means "applies to all unpaid leave types"
+  leaveTypeId      String?   @map("leave_type_id")
+
+  /// How the daily rate is calculated.
+  /// CALENDAR_DAYS          — deduction = (salary / calendarDaysInMonth) * days
+  /// WORKING_DAYS           — deduction = (salary / workingDaysInMonth) * days
+  /// FIXED_DIVISOR          — deduction = (salary / fixedDivisor) * days
+  /// PAYROLL_PERIOD_WORKING_DAYS — deduction = (salary / actualWorkingDaysInPeriod) * days
+  calculationBasis String    @map("calculation_basis") // CALENDAR_DAYS | WORKING_DAYS | FIXED_DIVISOR | PAYROLL_PERIOD_WORKING_DAYS
+
+  fixedDivisor     Decimal?  @map("fixed_divisor") @db.Decimal(6, 2) // Used when calculationBasis = FIXED_DIVISOR
+
+  // For LATE_ARRIVALS scope: number of late arrivals that triggers 1 absence deduction
+  lateTriggerCount Int?      @map("late_trigger_count")
+
+  // Caps & guards
+  maxDeductionDaysPerPeriod Decimal? @map("max_deduction_days_per_period") @db.Decimal(5, 2)
+
+  notes            String?
+  isActive         Boolean   @default(true) @map("is_active")
+  effectiveFrom    DateTime  @default(now()) @map("effective_from")
+  effectiveTo      DateTime? @map("effective_to")
+
+  createdByUserId  String?   @map("created_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leaveType       LeaveType?       @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  createdBy       User?            @relation("DeductionPolicyCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  deductionInputs PayrollDeductionInput[]
+
+  @@unique([tenantId, policyCode, leaveTypeId])
+  @@index([tenantId, scope])
+  @@index([tenantId, isActive])
+  @@index([tenantId, leaveTypeId])
+  @@map("payroll_deduction_policies")
+}
+
+/// One auditable financial evidence record per approved leave application
+/// per payroll period. Never hard-deleted — only REVERSED or CANCELLED.
+model PayrollDeductionInput {
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+
+  policyId            String    @map("policy_id")
+  leaveApplicationId  String    @map("leave_application_id")
+  employeeId          String    @map("employee_id")
+  leaveTypeId         String?   @map("leave_type_id")
+
+  /// Payroll period this deduction belongs to (calendar-month derived in Phase 3 Step 1)
+  payrollPeriodStart  DateTime  @map("payroll_period_start")
+  payrollPeriodEnd    DateTime  @map("payroll_period_end")
+  payrollPeriodLabel  String    @map("payroll_period_label") // e.g. "September 2026"
+
+  deductionScope      String    @map("deduction_scope") // UNPAID_LEAVE | LATE_ARRIVAL_AGGREGATE | etc.
+  calculationBasis    String    @map("calculation_basis") // Snapshot of policy basis at generation time
+
+  deductionDays       Decimal   @map("deduction_days") @db.Decimal(5, 2) // Quantity (e.g. 0.5, 1.0)
+  fixedDivisorUsed    Decimal?  @map("fixed_divisor_used") @db.Decimal(6, 2) // Snapshot of divisor used
+
+  /// Amount is null until the future Payroll module processes it.
+  /// We NEVER silently alter base salary — amount is populated externally.
+  deductionAmount     Decimal?  @map("deduction_amount") @db.Decimal(12, 2)
+  currencyCode        String    @default("PKR") @map("currency_code")
+
+  status              String    @default("PENDING") @map("status") // PENDING | PROCESSED | REVERSED | CANCELLED
+
+  reversalReason      String?   @map("reversal_reason")
+  reversedAt          DateTime? @map("reversed_at")
+  reversedByUserId    String?   @map("reversed_by_user_id")
+
+  systemActorNote     String?   @map("system_actor_note") // e.g. "System: Final Approval LR-2026-000148"
+
+  /// JSON evidence: balance snapshots, divisor, period days, policy snapshot
+  calculationEvidence Json      @map("calculation_evidence")
+
+  createdByUserId     String?   @map("created_by_user_id")
+  processedAt         DateTime? @map("processed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  policy           PayrollDeductionPolicy  @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  leaveApplication LeaveApplication        @relation(fields: [leaveApplicationId], references: [id], onDelete: Cascade)
+  employee         Employee                @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType        LeaveType?              @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  createdBy        User?                   @relation("DeductionInputCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reversedBy       User?                   @relation("DeductionInputReverser", fields: [reversedByUserId], references: [id], onDelete: SetNull)
+  auditLogs        PayrollDeductionAuditLog[]
+
+  // Database-level idempotency: one deduction input per (application, payroll period)
+  @@unique([tenantId, leaveApplicationId, payrollPeriodStart])
+  @@index([tenantId, employeeId, payrollPeriodStart])
+  @@index([tenantId, status])
+  @@index([tenantId, leaveApplicationId])
+  @@index([tenantId, policyId])
+  @@map("payroll_deduction_inputs")
+}
+
+/// Immutable append-only audit trail for every state change on PayrollDeductionInput.
+model PayrollDeductionAuditLog {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  deductionInputId String   @map("deduction_input_id")
+
+  action           String   // GENERATED | REVERSED | CANCELLED | PROCESSED | REACTIVATED | SKIPPED
+  actorUserId      String?  @map("actor_user_id")
+  actorName        String?  @map("actor_name")
+  previousStatus   String   @map("previous_status")
+  newStatus        String   @map("new_status")
+  reason           String?
+  evidence         Json?    // JSON snapshot at time of action
+
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deductionInput PayrollDeductionInput @relation(fields: [deductionInputId], references: [id], onDelete: Cascade)
+  actor         User?                 @relation("DeductionAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, deductionInputId])
+  @@index([tenantId, createdAt])
+  @@map("payroll_deduction_audit_logs")
 }
