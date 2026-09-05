@@ -274,7 +274,7 @@ export function StudentFormView({ initialStudentId }: StudentFormProps) {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-6 max-w-5xl mx-auto">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {/* Top Header */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">

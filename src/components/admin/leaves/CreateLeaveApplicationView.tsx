@@ -346,7 +346,7 @@ export function CreateLeaveApplicationView() {
   const empStatus = currentEmp?.confirmationStatus || 'CONFIRMED';
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-6 pb-12">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-4">
         <div className="flex items-center gap-3">

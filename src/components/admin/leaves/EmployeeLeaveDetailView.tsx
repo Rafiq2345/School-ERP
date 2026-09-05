@@ -118,7 +118,7 @@ export function EmployeeLeaveDetailView({ employeeId }: { employeeId: string }) 
   return (
     <div className="min-h-screen bg-slate-50">
       <LeaveManagementNav />
-      <div className="max-w-7xl mx-auto px-4 sm:px-8 py-6 space-y-6">
+      <div className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Top bar back link */}
         <div className="flex items-center justify-between">
           <Link

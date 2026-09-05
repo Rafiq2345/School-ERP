@@ -13,8 +13,8 @@ interface ModuleSubNavProps {
 
 export function ModuleSubNav({ config, activePath, locale }: ModuleSubNavProps) {
   return (
-    <div className="bg-slate-50/95 border-b border-slate-200/90 px-3 sm:px-6 shadow-2xs z-20 relative">
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 py-1.5">
+    <div className="bg-slate-50/95 border-b border-slate-200/90 px-4 sm:px-6 lg:px-8 shadow-2xs z-20 relative">
+      <div className="w-full max-w-[1800px] mx-auto flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 py-1.5">
         {/* Module Title Badge */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md border border-blue-200/70">

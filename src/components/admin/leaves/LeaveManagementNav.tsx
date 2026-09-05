@@ -37,8 +37,8 @@ export function LeaveManagementNav() {
   ];
 
   return (
-    <div className="bg-white border-b border-slate-200 px-4 sm:px-8 py-2.5 shadow-2xs">
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
+    <div className="bg-white border-b border-slate-200 px-4 sm:px-6 lg:px-8 py-2.5 shadow-2xs">
+      <div className="w-full max-w-[1800px] mx-auto flex items-center justify-between">
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 sm:pb-0 text-xs sm:text-sm font-medium scrollbar-none">
           {navItems.map((item) => {
             const Icon = item.icon;

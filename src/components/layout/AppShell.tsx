@@ -28,7 +28,7 @@ export function AppShell({ user, tenant, activePath, children }: AppShellProps) 
 
   return (
     <ToastProvider>
-      <div dir={dir} className="min-h-screen bg-slate-50 flex flex-col antialiased">
+      <div dir={dir} className="min-h-screen bg-[#f0f4f9] flex flex-col antialiased">
         {/* Top Application Header */}
         <AppHeader
           user={user}
@@ -41,7 +41,7 @@ export function AppShell({ user, tenant, activePath, children }: AppShellProps) 
           }}
         />
 
-        {/* Top Main Navigation Bar (Clean single row, NO horizontal scrollbar, NO global Reports item) */}
+        {/* Top Main Navigation Bar */}
         <AppNav activePath={currentPath} userType={user.userType} locale={locale} />
 
         {/* Contextual Module Sub-Navigation (Rendered when inside a specific module) */}
@@ -53,16 +53,27 @@ export function AppShell({ user, tenant, activePath, children }: AppShellProps) 
           />
         )}
 
-        {/* Main Responsive Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Main Responsive Content Area (Full width with balanced 24-32px gutters) */}
+        <main className="flex-1 w-full px-4 sm:px-6 xl:px-8 py-3 sm:py-3.5">
           {children}
         </main>
 
-        {/* Standard ERP Footer */}
-        <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-500">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        {/* Standard ERP Executive Footer */}
+        <footer className="bg-white border-t border-slate-200/90 py-2.5 text-xs text-slate-500 shadow-2xs">
+          <div className="w-full px-4 sm:px-6 xl:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-3xs sm:text-xs">
             <span>&copy; {new Date().getFullYear()} {tenant.schoolName}. All rights reserved.</span>
-            <span className="text-[11px] text-slate-400">School-ERP v0.1.0 (Commercial Edition)</span>
+            <div className="flex items-center gap-3 text-slate-500">
+              <span className="hover:text-slate-800 transition-colors cursor-pointer">Privacy Policy</span>
+              <span className="text-slate-300">•</span>
+              <span className="hover:text-slate-800 transition-colors cursor-pointer">Support</span>
+              <span className="text-slate-300">•</span>
+              <span>Version 0.1.0</span>
+              <span className="text-slate-300">•</span>
+              <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                System Online
+              </span>
+            </div>
           </div>
         </footer>
       </div>

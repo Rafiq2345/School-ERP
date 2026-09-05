@@ -15,7 +15,7 @@ export default async function LeaveApplicationDetailPage({
   return (
     <div className="min-h-screen bg-slate-50">
       <LeaveManagementNav />
-      <main className="max-w-7xl mx-auto px-4 sm:px-8 py-8">
+      <main className="w-full max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <LeaveApplicationDetailView applicationId={id} />
       </main>
     </div>

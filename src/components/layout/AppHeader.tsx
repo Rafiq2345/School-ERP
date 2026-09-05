@@ -20,30 +20,30 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
   const t = (key: string) => getTranslation(locale, key);
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
+    <header className="bg-white border-b border-slate-200/90 sticky top-0 z-40 shadow-2xs">
+      <div className="w-full px-4 sm:px-6 xl:px-8 h-15 flex items-center justify-between gap-4 sm:gap-6">
         {/* Left Side: School Identity & Administration Configuration */}
-        <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-xs">
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+          <Link href={`/${user.userType.toLowerCase()}`} className="flex items-center gap-2.5 group">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
               <School className="w-5 h-5" />
             </div>
             <div className="flex flex-col">
-              <span className="font-bold text-sm sm:text-base text-slate-900 leading-tight truncate max-w-[200px] sm:max-w-xs">
+              <span className="font-extrabold text-sm sm:text-base text-slate-900 leading-tight truncate max-w-[200px] sm:max-w-xs group-hover:text-blue-600 transition-colors">
                 {tenant.schoolName}
               </span>
-              <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium">
+              <span className="text-[10px] sm:text-[11px] text-slate-500 font-medium truncate">
                 {t('app.tagline')}
               </span>
             </div>
-          </div>
+          </Link>
 
           {/* Clearly Accessible "Administration Configuration" Control */}
           {user.userType === 'ADMIN' && (
             <Link
               href="/admin/settings"
               title={t('app.admin_config')}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition-all shadow-2xs ms-2"
+              className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-slate-100/90 hover:bg-blue-50 hover:text-blue-700 border border-slate-200/80 hover:border-blue-200 transition-all shadow-2xs ms-2"
             >
               <Sliders className="w-3.5 h-3.5 text-slate-500" />
               <span>{t('app.admin_config')}</span>
@@ -51,24 +51,24 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
           )}
         </div>
 
-        {/* Global Search Bar (Desktop) */}
-        <div className="hidden md:flex items-center flex-1 max-w-sm mx-2">
+        {/* Global Search Bar (Desktop) - Centered with proper spacing */}
+        <div className="hidden md:flex items-center flex-1 max-w-md mx-4 lg:mx-8">
           <div className="relative w-full">
-            <Search className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder={t('app.search_placeholder')}
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg ps-9 pe-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+              placeholder="Search students, staff, classes, vouchers, etc..."
+              className="w-full bg-slate-50/80 hover:bg-slate-50 focus:bg-white border border-slate-200/90 rounded-xl ps-9 pe-4 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-2xs"
             />
           </div>
         </div>
 
-        {/* Right Side Controls: Notifications, Language Switch, Clean User Avatar */}
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          {/* Notifications Button */}
+        {/* Right Side Controls: Notifications, Language Switch, User Menu */}
+        <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
+          {/* Notifications Button with unread indicator */}
           <button
             type="button"
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 relative transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 relative transition-colors cursor-pointer"
             title={t('app.notifications')}
           >
             <Bell className="w-4 h-4" />
@@ -78,7 +78,7 @@ export function AppHeader({ user, tenant, locale, onLocaleChange, onLogout }: Ap
           {/* Language Switch */}
           <LanguageSwitch currentLocale={locale} onLocaleChange={onLocaleChange} />
 
-          {/* Clean User Menu (Avatar Only, No Text Block) */}
+          {/* User Menu */}
           <UserMenu user={user} tenant={tenant} onLogout={onLogout} />
         </div>
       </div>

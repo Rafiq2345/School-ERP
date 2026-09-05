@@ -10,7 +10,7 @@ export default function LeaveApprovalsPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <LeaveManagementNav />
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8">
+      <main className="flex-1 w-full max-w-[1800px] mx-auto p-4 sm:p-6 lg:p-8">
         <LeaveApprovalsInboxView />
       </main>
     </div>
