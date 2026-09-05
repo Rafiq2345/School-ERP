@@ -59,6 +59,50 @@ describe('Leave Management Phase 2 Step 1: Applications & Validation Engine Suit
       await prisma.leaveApplicationShift.deleteMany({ where: { applicationId: app.id } });
       await prisma.leaveApplication.deleteMany({ where: { id: app.id } });
     }
+
+    const defaultPolicy = await prisma.leavePolicy.findFirst({ where: { tenantId, isDefault: true } });
+
+    // Ensure baseline entitlements for test isolation
+    if (casualLt && emp101) {
+      await prisma.employeeLeaveEntitlement.upsert({
+        where: { tenantId_employeeId_leaveTypeId_leaveYear: { tenantId, employeeId: emp101.id, leaveTypeId: casualLt.id, leaveYear: 2026 } },
+        update: { allocatedDays: 10, availableBalance: 10, usedDays: 0 },
+        create: {
+          tenantId,
+          employeeId: emp101.id,
+          leaveTypeId: casualLt.id,
+          leavePolicyId: defaultPolicy?.id || '',
+          leaveYear: 2026,
+          allocationMethod: 'ANNUAL_UPFRONT',
+          openingBalance: 0,
+          allocatedDays: 10,
+          usedDays: 0,
+          adjustedDays: 0,
+          availableBalance: 10,
+          status: 'ACTIVE',
+        },
+      });
+    }
+    if (sickLt && emp101) {
+      await prisma.employeeLeaveEntitlement.upsert({
+        where: { tenantId_employeeId_leaveTypeId_leaveYear: { tenantId, employeeId: emp101.id, leaveTypeId: sickLt.id, leaveYear: 2026 } },
+        update: { allocatedDays: 10, availableBalance: 10, usedDays: 0 },
+        create: {
+          tenantId,
+          employeeId: emp101.id,
+          leaveTypeId: sickLt.id,
+          leavePolicyId: defaultPolicy?.id || '',
+          leaveYear: 2026,
+          allocationMethod: 'ANNUAL_UPFRONT',
+          openingBalance: 0,
+          allocatedDays: 10,
+          usedDays: 0,
+          adjustedDays: 0,
+          availableBalance: 10,
+          status: 'ACTIVE',
+        },
+      });
+    }
   });
 
   it('1. Full-day application: Calculates working days, excludes holidays/weekly-offs, and creates application', async () => {
