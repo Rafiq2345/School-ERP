@@ -1,15 +1,18 @@
 'use client';
 
 import React, { useState } from 'react';
-import { School, Lock, User, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import Link from 'next/link';
+import { School, Lock, User, AlertCircle, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 import { SupportedLocale } from '@/lib/types';
 import { LanguageSwitch } from '@/components/layout/LanguageSwitch';
 import { getTranslation } from '@/lib/i18n/translations';
+import { validateEmail, validatePakistanMobile, FIELD_MAX_LENGTHS } from '@/lib/validation/auth-validation';
 
 export default function LoginPage() {
   const [locale, setLocale] = useState<SupportedLocale>('en');
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -21,6 +24,29 @@ export default function LoginPage() {
     setIsLoading(true);
     setErrorMessage('');
 
+    const trimmedInput = usernameOrEmail.trim();
+    if (!trimmedInput) {
+      setErrorMessage(t('auth.invalid_credentials'));
+      setIsLoading(false);
+      return;
+    }
+
+    if (trimmedInput.includes('@')) {
+      const emailRes = validateEmail(trimmedInput);
+      if (!emailRes.isValid) {
+        setErrorMessage(emailRes.error || 'Enter a valid email address.');
+        setIsLoading(false);
+        return;
+      }
+    } else if (trimmedInput.startsWith('03') || /^\d+$/.test(trimmedInput.replace(/[\s\-]/g, ''))) {
+      const mobileRes = validatePakistanMobile(trimmedInput);
+      if (!mobileRes.isValid) {
+        setErrorMessage(mobileRes.error || 'Enter a valid 11-digit mobile number (e.g. 03001234567).');
+        setIsLoading(false);
+        return;
+      }
+    }
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -28,7 +54,7 @@ export default function LoginPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          usernameOrEmail,
+          usernameOrEmail: trimmedInput,
           password,
         }),
       });
@@ -38,6 +64,12 @@ export default function LoginPage() {
       if (!res.ok || !data.success) {
         setErrorMessage(data?.error?.message || t('auth.invalid_credentials'));
         setIsLoading(false);
+        return;
+      }
+
+      // If user is flagged with temporary password, force change password
+      if (data.data?.mustChangePassword) {
+        window.location.href = '/change-password';
         return;
       }
 
@@ -97,7 +129,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Clean Login Form (Username/Email + Password + Forgot Link + Submit) */}
+          {/* Login Form */}
           <form onSubmit={handleLogin} className="space-y-4">
             {/* Username or Email */}
             <div>
@@ -110,42 +142,52 @@ export default function LoginPage() {
                   type="text"
                   required
                   autoComplete="username"
+                  maxLength={FIELD_MAX_LENGTHS.USERNAME}
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl ps-9 pe-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
-                  placeholder="admin, teacher, student..."
+                  placeholder="admin, teacher, student, mobile..."
                 />
               </div>
             </div>
 
-            {/* Password */}
+            {/* Password with Accessible Show/Hide Toggle */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-semibold text-slate-700">
                   {t('auth.password_label')}
                 </label>
-                <a
-                  href="#forgot-password"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    alert('Please contact your School Administration to reset your portal password.');
-                  }}
+                <Link
+                  href="/forgot-password"
                   className="text-[11px] font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors"
                 >
                   {t('auth.forgot_password')}
-                </a>
+                </Link>
               </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   autoComplete="current-password"
+                  maxLength={FIELD_MAX_LENGTHS.PASSWORD}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl ps-9 pe-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl ps-9 pe-10 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all"
                   placeholder="••••••••"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none p-1 transition-colors cursor-pointer"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
               </div>
             </div>
 

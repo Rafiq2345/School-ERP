@@ -20,6 +20,9 @@
     "password_label": "پاس ورڈ",
     "sign_in_button": "لاگ ان کریں",
     "forgot_password": "کیا آپ پاس ورڈ بھول گئے؟",
+    "forgot_password_guidance_title": "کیا آپ پاس ورڈ بھول گئے؟",
+    "forgot_password_guidance_desc": "براہ کرم اپنا پاس ورڈ دوبارہ ترتیب دینے کے لیے اپنے سسٹم ایڈمنسٹریٹر یا سافٹ ویئر سپورٹ سے رابطہ کریں۔",
+    "back_to_login": "لاگ ان پر واپس جائیں",
     "tenant_label": "اسکول کوڈ / شناخت",
     "invalid_credentials": "صارف کا نام یا پاس ورڈ درست نہیں ہے۔",
     "account_locked": "اکاؤنٹ عارضی طور پر مقفل کر دیا گیا ہے۔ 15 منٹ بعد دوبارہ کوشش کریں۔"

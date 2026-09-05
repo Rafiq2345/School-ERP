@@ -20,6 +20,9 @@
     "password_label": "Password",
     "sign_in_button": "Sign In",
     "forgot_password": "Forgot your password?",
+    "forgot_password_guidance_title": "Forgot your password?",
+    "forgot_password_guidance_desc": "Please contact your system administrator or software support to reset your password.",
+    "back_to_login": "Back to Login",
     "tenant_label": "School Identifier / Code",
     "invalid_credentials": "Invalid username or password.",
     "account_locked": "Account is locked due to too many failed attempts. Try again in 15 minutes."

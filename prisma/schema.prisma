@@ -109,6 +109,10 @@ model Tenant {
   payrollDeductionAuditLogs PayrollDeductionAuditLog[]
   payrollDeductionAssignments PayrollDeductionPolicyAssignment[]
 
+  // Authentication & Password Recovery Foundation
+  passwordRecoveryRequests    PasswordRecoveryRequest[]
+  passwordRecoveryOtps        PasswordRecoveryOtp[]
+
   @@map("tenants")
 }
 
@@ -154,6 +158,9 @@ model User {
   failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
   lockoutUntil        DateTime? @map("lockout_until")
   lastLoginAt         DateTime? @map("last_login_at")
+  mustChangePassword  Boolean   @default(false) @map("must_change_password")
+  recoveryMobile      String?   @map("recovery_mobile")
+  isMobileVerified    Boolean   @default(false) @map("is_mobile_verified")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
@@ -186,6 +193,11 @@ model User {
   payrollDeductionInputsCreated    PayrollDeductionInput[]     @relation("DeductionInputCreator")
   payrollDeductionReversals        PayrollDeductionInput[]     @relation("DeductionInputReverser")
   payrollDeductionAuditLogs        PayrollDeductionAuditLog[]  @relation("DeductionAuditActor")
+
+  // Authentication & Password Recovery
+  recoveryRequests         PasswordRecoveryRequest[]    @relation("UserRecoveryRequests")
+  reviewedRecoveryRequests PasswordRecoveryRequest[]    @relation("AdminRecoveryReviewer")
+  recoveryOtps             PasswordRecoveryOtp[]
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -288,6 +300,56 @@ model PasswordResetToken {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset_tokens")
+}
+
+model PasswordRecoveryRequest {
+  id                         String    @id @default(uuid())
+  tenantId                   String    @map("tenant_id")
+  userId                     String?   @map("user_id")
+  identifierProvided         String    @map("identifier_provided")
+  contactType                String    @default("MOBILE") @map("contact_type") // MOBILE, EMAIL, OTHER
+  contactValue               String?   @map("contact_value")
+  reason                     String?
+  status                     String    @default("PENDING") // PENDING, VERIFIED, REJECTED, COMPLETED, CANCELLED
+  adminComments              String?   @map("admin_comments")
+  reviewedByUserId           String?   @map("reviewed_by_user_id")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  temporaryPasswordGenerated Boolean   @default(false) @map("temporary_password_generated")
+  requesterIp                String?   @map("requester_ip")
+  requesterUserAgent         String?   @map("requester_user_agent")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?  @relation("UserRecoveryRequests", fields: [userId], references: [id], onDelete: SetNull)
+  reviewedBy User?  @relation("AdminRecoveryReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, identifierProvided])
+  @@map("password_recovery_requests")
+}
+
+model PasswordRecoveryOtp {
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  userId               String    @map("user_id")
+  channel              String // SMS, WHATSAPP, EMAIL
+  recipientMasked      String    @map("recipient_masked")
+  otpHash              String    @map("otp_hash")
+  resetTokenHash       String?   @map("reset_token_hash")
+  attemptsCount        Int       @default(0) @map("attempts_count")
+  maxAttempts          Int       @default(3) @map("max_attempts")
+  expiresAt            DateTime  @map("expires_at")
+  resendCooldownUntil  DateTime  @map("resend_cooldown_until")
+  usedAt               DateTime? @map("used_at")
+  isInvalidated        Boolean   @default(false) @map("is_invalidated")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, isInvalidated])
+  @@map("password_recovery_otps")
 }
 
 // ---------------------------------------------------------
@@ -1639,6 +1701,7 @@ model Employee {
   leaveLedgerTransactions LeaveLedgerTransaction[]
   leaveApplications       LeaveApplication[]
   leaveWorkflowRules      LeaveApprovalWorkflowRule[]
+  leaveYearEndBatchItems  LeaveYearEndBatchItem[]
   payrollDeductionInputs  PayrollDeductionInput[]
   payrollDeductionAssignments PayrollDeductionPolicyAssignment[]
 

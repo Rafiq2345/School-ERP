@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { checkRateLimit, resetRateLimit } from '@/lib/security/rate-limit';
 import { resolveTenantFromRequest } from '@/lib/tenant/resolver';
 import { getAuthorizedDashboardRoute } from '@/lib/auth/router';
-import { generateSessionToken, hashSessionToken, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS } from '@/lib/auth/session';
+import { generateSessionToken, hashSessionToken, SESSION_COOKIE_NAME, SESSION_DURATION_HOURS, computeFailedLoginState, checkAccountLockout } from '@/lib/auth/session';
+import { verifyPassword } from '@/lib/auth/password';
+import { prisma } from '@/lib/db/prisma';
 import { UserType } from '@/lib/types';
 
 const loginSchema = z.object({
@@ -11,8 +13,7 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required').max(100),
 });
 
-// Demo/Seed User Registry for Phase 2 Foundation Authentication
-// (Maps credentials to canonical user records and backend userType)
+// Demo/Seed User Registry for fallback/seed authentication
 const MOCK_USER_REGISTRY: Record<
   string,
   { password: string; userType: UserType; name: string }
@@ -64,15 +65,145 @@ export async function POST(req: NextRequest) {
     }
 
     const { usernameOrEmail, password } = parseResult.data;
-
-    // 1. Resolve tenant securely from server context (never from user input)
-    const tenantContext = resolveTenantFromRequest(req.headers);
-
-    // 2. Authenticate user credentials
     const lookupKey = usernameOrEmail.toLowerCase().trim();
-    const userRecord = MOCK_USER_REGISTRY[lookupKey];
 
-    if (!userRecord || userRecord.password !== password) {
+    // 1. Resolve tenant securely from server context
+    const tenantContext = resolveTenantFromRequest(req.headers);
+    const tenantId = tenantContext.tenantId || 'tenant-sch-001';
+
+    // 2. Check Database Users first
+    let dbUser = await prisma.user.findFirst({
+      where: {
+        tenantId,
+        OR: [
+          { username: { equals: lookupKey, mode: 'insensitive' } },
+          { email: { equals: lookupKey, mode: 'insensitive' } },
+          { phone: usernameOrEmail.trim() },
+        ],
+      },
+      include: {
+        userRoles: {
+          include: {
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (dbUser) {
+      // Check lockout status
+      try {
+        checkAccountLockout({
+          status: dbUser.status,
+          lockoutUntil: dbUser.lockoutUntil,
+        });
+      } catch (err: any) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'ACCOUNT_LOCKED',
+              message: err.message || 'Account is currently locked.',
+            },
+          },
+          { status: 403 }
+        );
+      }
+
+      // Verify Password Hash
+      const isPasswordValid = await verifyPassword(password, dbUser.passwordHash);
+
+      if (!isPasswordValid) {
+        // Failed attempt handling
+        const lockoutState = computeFailedLoginState(dbUser.failedLoginAttempts);
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: {
+            failedLoginAttempts: lockoutState.newAttempts,
+            status: lockoutState.newStatus,
+            lockoutUntil: lockoutState.lockoutUntil,
+          },
+        });
+
+        const remaining = 5 - lockoutState.newAttempts;
+        const msg = lockoutState.newStatus === 'LOCKED'
+          ? 'Account is locked due to too many failed attempts. Try again in 15 minutes.'
+          : `Invalid credentials. ${remaining > 0 ? remaining + ' attempt(s) remaining.' : ''}`;
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: 'INVALID_CREDENTIALS',
+              message: msg,
+            },
+          },
+          { status: 401 }
+        );
+      }
+
+      // Successful password match -> reset failed attempts
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: {
+          failedLoginAttempts: 0,
+          lockoutUntil: null,
+          lastLoginAt: new Date(),
+        },
+      });
+
+      resetRateLimit(`login:${ip}`);
+
+      // Determine redirect URL
+      let redirectUrl = getAuthorizedDashboardRoute(dbUser.userType as UserType);
+      if (dbUser.mustChangePassword) {
+        redirectUrl = '/change-password';
+      }
+
+      // Generate session token and store in DB
+      const rawSessionToken = generateSessionToken();
+      const tokenHash = hashSessionToken(rawSessionToken);
+      const expiresAt = new Date(Date.now() + SESSION_DURATION_HOURS * 3600 * 1000);
+
+      await prisma.userSession.create({
+        data: {
+          tenantId,
+          userId: dbUser.id,
+          tokenHash,
+          expiresAt,
+          ipAddress: ip,
+          userAgent: req.headers.get('user-agent') || 'Unknown',
+        },
+      });
+
+      const response = NextResponse.json({
+        success: true,
+        data: {
+          userId: dbUser.id,
+          username: dbUser.username,
+          userType: dbUser.userType,
+          mustChangePassword: dbUser.mustChangePassword,
+          tenant: tenantContext,
+          redirectUrl,
+        },
+      });
+
+      response.cookies.set({
+        name: SESSION_COOKIE_NAME,
+        value: rawSessionToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: SESSION_DURATION_HOURS * 3600,
+        path: '/',
+      });
+
+      return response;
+    }
+
+    // 3. Fallback for mock/seed demo users when not in DB
+    const mockUser = MOCK_USER_REGISTRY[lookupKey];
+    if (!mockUser || mockUser.password !== password) {
       return NextResponse.json(
         {
           success: false,
@@ -85,27 +216,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Reset rate limiter on successful authentication
     resetRateLimit(`login:${ip}`);
-
-    // 3. Determine authorized dashboard route strictly from server-side user record
-    const redirectUrl = getAuthorizedDashboardRoute(userRecord.userType);
-
-    // 4. Generate session token
+    const redirectUrl = getAuthorizedDashboardRoute(mockUser.userType);
     const rawSessionToken = generateSessionToken();
-    const tokenHash = hashSessionToken(rawSessionToken);
 
     const response = NextResponse.json({
       success: true,
       data: {
-        username: userRecord.name,
-        userType: userRecord.userType,
+        username: mockUser.name,
+        userType: mockUser.userType,
+        mustChangePassword: false,
         tenant: tenantContext,
         redirectUrl,
       },
     });
 
-    // 5. Set secure HttpOnly session cookie
     response.cookies.set({
       name: SESSION_COOKIE_NAME,
       value: rawSessionToken,
@@ -117,17 +242,16 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch {
+  } catch (err: any) {
     return NextResponse.json(
       {
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'An unexpected error occurred during authentication.',
+          message: err.message || 'An unexpected error occurred during authentication.',
         },
       },
       { status: 500 }
     );
   }
 }
-
