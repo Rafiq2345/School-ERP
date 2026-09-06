@@ -41,6 +41,7 @@ model Tenant {
   proofSubmissions  PaymentProofSubmission[]
 
   // Administration Configuration Relations
+  headOffices               HeadOffice[]
   academicSessions          AcademicSession[]
   classCategories           ClassCategory[]
   schoolClasses             SchoolClass[]
@@ -139,6 +140,165 @@ model SchoolProfile {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("school_profiles")
+}
+
+model HeadOffice {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  name           String
+  code           String
+  shortName      String?  @map("short_name")
+  registrationNo String?  @map("registration_no")
+  addressLine1   String   @map("address_line_1")
+  addressLine2   String?  @map("address_line_2")
+  city           String
+  state          String?
+  country        String   @default("Pakistan")
+  postalCode     String?  @map("postal_code")
+  phone          String?
+  altPhone       String?  @map("alt_phone")
+  email          String?
+  website        String?
+  directorName   String?  @map("director_name")
+  adminContact   String?  @map("admin_contact")
+  timezone       String   @default("Asia/Karachi")
+  currency       String   @default("PKR")
+  status         String   @default("ACTIVE") // ACTIVE, INACTIVE
+  remarks        String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                     String         @id @default(uuid())
+  tenantId               String         @map("tenant_id")
+  name                   String
+  code                   String
+  shortName              String?        @map("short_name")
+  registrationNo         String?        @map("registration_no")
+  countryId              String?        @map("country_id")
+  stateId                String?        @map("state_id")
+  cityId                 String?        @map("city_id")
+  addressLine1           String         @map("address_line_1")
+  addressLine2           String?        @map("address_line_2")
+  city                   String
+  state                  String?
+  country                String         @default("Pakistan")
+  postalCode             String?        @map("postal_code")
+  phone                  String?
+  altPhone               String?        @map("alt_phone")
+  email                  String?
+  website                String?
+  directorEmployeeId     String?        @map("director_employee_id")
+  adminContactEmployeeId String?        @map("admin_contact_employee_id")
+  directorName           String?        @map("director_name")
+  adminContact           String?        @map("admin_contact")
+  timezone               String         @default("Asia/Karachi")
+  currency               String         @default("PKR")
+  status                 String         @default("ACTIVE") // ACTIVE, INACTIVE
+  remarks                String?
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant                 Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  countryRef             Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  stateRef               StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  cityRef                City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  director               Employee?      @relation("HeadOfficeDirector", fields: [directorEmployeeId], references: [id], onDelete: SetNull)
+  adminContactPerson     Employee?      @relation("HeadOfficeAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([tenantId, city])
+  @@index([tenantId, countryId])
+  @@index([tenantId, cityId])
+  @@map("head_offices")
+}
+
+// ---------------------------------------------------------
+// 1.1 GLOBAL REFERENCE MASTERS (PROVIDER-MANAGED)
+// ---------------------------------------------------------
+
+model Country {
+  id               String          @id @default(uuid())
+  isoCode          String          @unique @map("iso_code") // PK, GB, US, CA, AE, SA
+  iso3             String?         @map("iso_3") // PAK, GBR, USA, CAN, ARE, SAU
+  name             String
+  officialName     String?         @map("official_name")
+  phoneCallingCode String          @map("phone_calling_code") // +92, +44, +1, +971, +966
+  currencyCode     String          @default("PKR") @map("currency_code")
+  currencySymbol   String          @default("Rs.") @map("currency_symbol")
+  defaultTimezone  String          @default("Asia/Karachi") @map("default_timezone")
+  displayOrder     Int             @default(0) @map("display_order")
+  isActive         Boolean         @default(true) @map("is_active")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  states           StateProvince[]
+  headOffices      HeadOffice[]
+
+  @@map("global_countries")
+}
+
+model StateProvince {
+  id           String       @id @default(uuid())
+  countryId    String       @map("country_id")
+  code         String       // SD, PB, KP, BA, IS, CA, NY, ENG, ON, DXB, etc.
+  name         String       // Sindh, Punjab, California, England, Dubai, etc.
+  type         String       @default("PROVINCE") // PROVINCE, STATE, EMIRATE, REGION, FEDERAL_TERRITORY
+  displayOrder Int          @default(0) @map("display_order")
+  isActive     Boolean      @default(true) @map("is_active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  country      Country      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  cities       City[]
+  headOffices  HeadOffice[]
+
+  @@unique([countryId, code])
+  @@index([countryId, isActive])
+  @@map("global_state_provinces")
+}
+
+model City {
+  id                String        @id @default(uuid())
+  stateId           String        @map("state_id")
+  code              String        // KHI, LHR, ISB, LON, NYC, LAX, DXB, etc.
+  name              String        // Karachi, Lahore, Islamabad, London, etc.
+  postalCodePattern String?       @map("postal_code_pattern")
+  displayOrder      Int           @default(0) @map("display_order")
+  isActive          Boolean       @default(true) @map("is_active")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  state             StateProvince @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  headOffices       HeadOffice[]
+
+  @@unique([stateId, name])
+  @@index([stateId, isActive])
+  @@index([stateId, code])
+  @@map("global_cities")
+}
+
+model GlobalTimezone {
+  id         String   @id @default(uuid())
+  identifier String   @unique // Asia/Karachi, Europe/London, America/New_York
+  label      String   // (UTC+05:00) Islamabad, Karachi - PKT
+  utcOffset  String   @map("utc_offset") // +05:00, +00:00, -05:00
+  countryIso String?  @map("country_iso") // PK, GB, US
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("global_timezones")
+}
+
+model GlobalCurrency {
+  code      String   @id // PKR, GBP, USD, CAD, AED, SAR
+  name      String   // Pakistani Rupee, British Pound, US Dollar
+  symbol    String   // Rs., £, $, AED, SAR
+  decimals  Int      @default(2)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("global_currencies")
 }
 
 // ---------------------------------------------------------
@@ -1704,6 +1864,8 @@ model Employee {
   leaveYearEndBatchItems  LeaveYearEndBatchItem[]
   payrollDeductionInputs  PayrollDeductionInput[]
   payrollDeductionAssignments PayrollDeductionPolicyAssignment[]
+  directedHeadOffices     HeadOffice[]                 @relation("HeadOfficeDirector")
+  adminContactHeadOffices HeadOffice[]                 @relation("HeadOfficeAdminContact")
 
   @@unique([tenantId, employeeNo])
   @@index([tenantId, currentStatus])

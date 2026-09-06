@@ -119,7 +119,7 @@ const CONFIG_TABS: ConfigTab[] = [
         id: 'head-offices',
         title: 'Head Offices',
         description: 'Add and manage Head Offices, executive secretariat units, central governance and administrative leadership.',
-        href: '/admin/settings/profile',
+        href: '/admin/settings/head-offices',
         badge: '1 Configured',
         badgeType: 'info',
         params: ['HO Code: HO-KHI', 'Secretariat Address', 'Director General Desk', 'Central Dispatch'],
@@ -1523,7 +1523,7 @@ export default function AdministrationConfigurationPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Link href="/admin/settings/profile">
+                <Link href="/admin/settings/head-offices">
                   <Button variant="outline" size="sm" className="h-7 text-3xs font-bold px-2.5">
                     Manage Head Offices
                   </Button>
@@ -1770,7 +1770,7 @@ export default function AdministrationConfigurationPage() {
 
         {/* Action Buttons */}
         <div className="flex items-center flex-wrap gap-2 text-xs">
-          <Link href="/admin/settings/profile">
+          <Link href="/admin/settings/head-offices?action=new">
             <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
               <Plus className="w-3 h-3 text-blue-600" />
               <span>Add Head Office</span>
