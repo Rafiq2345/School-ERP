@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import { GlobalReferenceService } from '@/lib/services/global-reference-service';
+import { hashPassword } from '@/lib/auth/password';
 
 export interface HeadOfficeInput {
   name: string;
@@ -19,6 +20,14 @@ export interface HeadOfficeInput {
   altPhone?: string | null;
   email?: string | null;
   website?: string | null;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  // Login Access fields
+  loginUsername?: string | null;
+  loginPassword?: string | null;
+  loginStatus?: 'ACTIVE' | 'INACTIVE';
+  // Legacy / internal fields preserved for backward compatibility
   directorEmployeeId?: string | null;
   adminContactEmployeeId?: string | null;
   directorName?: string | null;
@@ -42,6 +51,17 @@ export class HeadOfficeService {
     if (!params.userId) return;
     try {
       if (prisma.auditLog?.create) {
+        // Sanitize out any passwords if present
+        const sanitize = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return obj;
+          const copy = { ...obj };
+          delete copy.password;
+          delete copy.loginPassword;
+          delete copy.confirmPassword;
+          delete copy.passwordHash;
+          return copy;
+        };
+
         await prisma.auditLog.create({
           data: {
             tenantId: params.tenantId,
@@ -50,8 +70,8 @@ export class HeadOfficeService {
             entityType: 'HEAD_OFFICE',
             entityId: params.entityId,
             action: params.action,
-            oldValues: params.oldValues || undefined,
-            newValues: params.newValues || undefined,
+            oldValues: params.oldValues ? sanitize(params.oldValues) : undefined,
+            newValues: params.newValues ? sanitize(params.newValues) : undefined,
             changeSummary: params.changeSummary,
           },
         });
@@ -273,12 +293,46 @@ export class HeadOfficeService {
       }),
     ]);
 
+    // Enhance items with login user information if available
+    const enrichedItems = await Promise.all(
+      items.map(async (item) => {
+        let loginUsername: string | null = null;
+        let loginStatus: string | null = null;
+        try {
+          if (prisma.user?.findFirst) {
+            const user = await prisma.user.findFirst({
+              where: {
+                tenantId,
+                OR: [
+                  { username: item.code.toLowerCase() },
+                  { username: item.code.toLowerCase().replace(/-/g, '_') },
+                  ...(item.email ? [{ email: item.email }] : []),
+                ],
+              },
+              select: { username: true, status: true },
+            });
+            if (user) {
+              loginUsername = user.username;
+              loginStatus = user.status;
+            }
+          }
+        } catch {
+          // Non-blocking
+        }
+        return {
+          ...item,
+          loginUsername: loginUsername || item.code.toLowerCase().replace(/-/g, '_'),
+          loginStatus: loginStatus || item.status,
+        };
+      })
+    );
+
     const activeCount = allRecords.filter((r) => r.status === 'ACTIVE').length;
     const inactiveCount = allRecords.filter((r) => r.status === 'INACTIVE').length;
     const uniqueCities = Array.from(new Set(allRecords.map((r) => r.city).filter(Boolean)));
 
     return {
-      items,
+      items: enrichedItems,
       stats: {
         total: allRecords.length,
         active: activeCount,
@@ -290,7 +344,6 @@ export class HeadOfficeService {
   }
 
   /**
-   * Get single Head Office by ID
    * Get single Head Office by ID with full relations
    */
   public static async getHeadOfficeById(tenantId: string, id: string) {
@@ -319,7 +372,36 @@ export class HeadOfficeService {
       throw new Error(`Head Office not found with ID: ${id}`);
     }
 
-    return headOffice;
+    let loginUsername: string | null = null;
+    let loginStatus: string | null = null;
+
+    try {
+      if (prisma.user?.findFirst) {
+        const user = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: headOffice.code.toLowerCase() },
+              { username: headOffice.code.toLowerCase().replace(/-/g, '_') },
+              ...(headOffice.email ? [{ email: headOffice.email }] : []),
+            ],
+          },
+          select: { username: true, status: true },
+        });
+        if (user) {
+          loginUsername = user.username;
+          loginStatus = user.status;
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    return {
+      ...headOffice,
+      loginUsername: loginUsername || headOffice.code.toLowerCase().replace(/-/g, '_'),
+      loginStatus: (loginStatus as 'ACTIVE' | 'INACTIVE') || (headOffice.status as 'ACTIVE' | 'INACTIVE'),
+    };
   }
 
   /**
@@ -370,7 +452,7 @@ export class HeadOfficeService {
       throw new Error('City is required.');
     }
 
-    // 4. Employee Reference Checks
+    // 4. Employee Reference Checks (preserved internally for backward compatibility)
     let resolvedDirectorName = input.directorName ? input.directorName.trim() : null;
     if (input.directorEmployeeId) {
       const directorEmp = await prisma.employee.findFirst({
@@ -438,7 +520,7 @@ export class HeadOfficeService {
   }
 
   /**
-   * Create a new Head Office
+   * Create a new Head Office with optional Document Assets and Login Access Account
    */
   public static async createHeadOffice(tenantId: string, input: HeadOfficeInput, userId?: string) {
     if (!input.name || !input.name.trim()) {
@@ -468,6 +550,31 @@ export class HeadOfficeService {
       throw new Error(`A Head Office with code "${normalizedCode}" already exists.`);
     }
 
+    // 1. Handle Login Access Credentials Validation
+    const targetUsername = (input.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    if (targetUsername.length < 3) {
+      throw new Error('Login ID / Username must be at least 3 characters.');
+    }
+
+    // Check username uniqueness if User table is available
+    if (prisma.user?.findFirst) {
+      const existingUser = await prisma.user.findFirst({
+        where: { tenantId, username: targetUsername },
+      });
+      if (existingUser) {
+        throw new Error(`Username "${targetUsername}" is already in use by another account.`);
+      }
+    }
+
+    let passwordHash: string | null = null;
+    if (input.loginPassword && input.loginPassword.trim()) {
+      if (input.loginPassword.trim().length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
+      }
+      passwordHash = await hashPassword(input.loginPassword.trim());
+    }
+
+    // 2. Create Head Office Record
     const created = await prisma.headOffice.create({
       data: {
         tenantId,
@@ -488,13 +595,16 @@ export class HeadOfficeService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: input.logoUrl || null,
+        signatureUrl: input.signatureUrl || null,
+        stampUrl: input.stampUrl || null,
         directorEmployeeId: input.directorEmployeeId || null,
         adminContactEmployeeId: input.adminContactEmployeeId || null,
         directorName: resolved.directorName,
         adminContact: resolved.adminContact,
         timezone: input.timezone || 'Asia/Karachi',
         currency: input.currency || 'PKR',
-        status: input.status || 'ACTIVE',
+        status: input.status || input.loginStatus || 'ACTIVE',
         remarks: input.remarks ? input.remarks.trim() : null,
       },
       include: {
@@ -506,20 +616,63 @@ export class HeadOfficeService {
       },
     });
 
+    // 3. Create User Account for Head Office Login if password provided and User table exists
+    if (passwordHash && prisma.user?.create) {
+      try {
+        const createdUser = await prisma.user.create({
+          data: {
+            tenantId,
+            username: targetUsername,
+            email: resolved.email || undefined,
+            phone: resolved.phone || undefined,
+            passwordHash,
+            userType: 'ADMIN',
+            status: input.loginStatus || 'ACTIVE',
+          },
+        });
+
+        // Link Super Admin or standard admin role if exists
+        if (prisma.role?.findFirst && prisma.userRole?.create) {
+          const adminRole =
+            (await prisma.role.findFirst({ where: { tenantId, code: 'SUPER_ADMIN' } })) ||
+            (await prisma.role.findFirst({ where: { tenantId } }));
+          if (adminRole) {
+            await prisma.userRole.create({
+              data: {
+                tenantId,
+                userId: createdUser.id,
+                roleId: adminRole.id,
+              },
+            }).catch(() => {});
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to create linked User record for Head Office:', err.message);
+      }
+    }
+
     await this.logAudit({
       tenantId,
       userId,
       action: 'CREATE',
       entityId: created.id,
-      newValues: created,
-      changeSummary: `Created Head Office "${created.name}" [${created.code}] in ${created.city}, ${created.country}`,
+      newValues: {
+        ...created,
+        loginUsername: targetUsername,
+        loginStatus: input.loginStatus || 'ACTIVE',
+      },
+      changeSummary: `Created Head Office "${created.name}" [${created.code}] with Login ID "${targetUsername}" in ${created.city}, ${created.country}`,
     });
 
-    return created;
+    return {
+      ...created,
+      loginUsername: targetUsername,
+      loginStatus: input.loginStatus || 'ACTIVE',
+    };
   }
 
   /**
-   * Update an existing Head Office
+   * Update an existing Head Office with optional Document Assets and Login Access Account
    */
   public static async updateHeadOffice(
     tenantId: string,
@@ -546,7 +699,7 @@ export class HeadOfficeService {
       }
     }
 
-    const rawStatus = input.status !== undefined ? input.status : existing.status;
+    const rawStatus = input.status !== undefined ? input.status : (input.loginStatus !== undefined ? input.loginStatus : existing.status);
     const effectiveStatus: 'ACTIVE' | 'INACTIVE' = rawStatus === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
     const mergedInput: HeadOfficeInput = {
@@ -567,6 +720,11 @@ export class HeadOfficeService {
       altPhone: input.altPhone !== undefined ? input.altPhone : existing.altPhone,
       email: input.email !== undefined ? input.email : existing.email,
       website: input.website !== undefined ? input.website : existing.website,
+      logoUrl: input.logoUrl !== undefined ? input.logoUrl : existing.logoUrl,
+      signatureUrl: input.signatureUrl !== undefined ? input.signatureUrl : existing.signatureUrl,
+      stampUrl: input.stampUrl !== undefined ? input.stampUrl : existing.stampUrl,
+      loginUsername: input.loginUsername !== undefined ? input.loginUsername : existing.loginUsername,
+      loginStatus: input.loginStatus !== undefined ? input.loginStatus : effectiveStatus,
       directorEmployeeId: input.directorEmployeeId !== undefined ? input.directorEmployeeId : existing.directorEmployeeId,
       adminContactEmployeeId: input.adminContactEmployeeId !== undefined ? input.adminContactEmployeeId : existing.adminContactEmployeeId,
       directorName: input.directorName !== undefined ? input.directorName : existing.directorName,
@@ -579,6 +737,7 @@ export class HeadOfficeService {
 
     const resolved = await this.resolveAndValidateReferences(tenantId, mergedInput);
 
+    // 1. Update Head Office Record
     const updated = await prisma.headOffice.update({
       where: { id },
       data: {
@@ -599,6 +758,9 @@ export class HeadOfficeService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: mergedInput.logoUrl || null,
+        signatureUrl: mergedInput.signatureUrl || null,
+        stampUrl: mergedInput.stampUrl || null,
         directorEmployeeId: mergedInput.directorEmployeeId || null,
         adminContactEmployeeId: mergedInput.adminContactEmployeeId || null,
         directorName: resolved.directorName,
@@ -617,17 +779,104 @@ export class HeadOfficeService {
       },
     });
 
+    // 2. Handle Linked User Account Updates (Username, Status, Password Reset)
+    const targetUsername = (mergedInput.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    let passwordChanged = false;
+
+    if (prisma.user?.findFirst) {
+      try {
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: existing.code.toLowerCase() },
+              { username: existing.code.toLowerCase().replace(/-/g, '_') },
+              { username: targetUsername },
+              ...(existing.email ? [{ email: existing.email }] : []),
+            ],
+          },
+        });
+
+        if (existingUser) {
+          const userUpdateData: any = {
+            username: targetUsername,
+            status: mergedInput.loginStatus || effectiveStatus,
+            email: resolved.email || undefined,
+            phone: resolved.phone || undefined,
+          };
+
+          if (input.loginPassword && input.loginPassword.trim()) {
+            if (input.loginPassword.trim().length < 8) {
+              throw new Error('Password must be at least 8 characters long.');
+            }
+            userUpdateData.passwordHash = await hashPassword(input.loginPassword.trim());
+            passwordChanged = true;
+          }
+
+          if (prisma.user?.update) {
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: userUpdateData,
+            });
+          }
+        } else if (input.loginPassword && input.loginPassword.trim()) {
+          // User did not exist yet; create now
+          if (input.loginPassword.trim().length < 8) {
+            throw new Error('Password must be at least 8 characters long.');
+          }
+          const passwordHash = await hashPassword(input.loginPassword.trim());
+          passwordChanged = true;
+
+          if (prisma.user?.create) {
+            const newUser = await prisma.user.create({
+              data: {
+                tenantId,
+                username: targetUsername,
+                email: resolved.email || undefined,
+                phone: resolved.phone || undefined,
+                passwordHash,
+                userType: 'ADMIN',
+                status: mergedInput.loginStatus || effectiveStatus,
+              },
+            });
+
+            if (prisma.role?.findFirst && prisma.userRole?.create) {
+              const adminRole =
+                (await prisma.role.findFirst({ where: { tenantId, code: 'SUPER_ADMIN' } })) ||
+                (await prisma.role.findFirst({ where: { tenantId } }));
+              if (adminRole) {
+                await prisma.userRole.create({
+                  data: {
+                    tenantId,
+                    userId: newUser.id,
+                    roleId: adminRole.id,
+                  },
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to sync User record for Head Office:', err.message);
+      }
+    }
+
+    const passwordMsg = passwordChanged ? ' and reset login password' : '';
     await this.logAudit({
       tenantId,
       userId,
       action: 'UPDATE',
       entityId: updated.id,
-      oldValues: existing,
-      newValues: updated,
-      changeSummary: `Updated Head Office details for "${updated.name}" [${updated.code}]`,
+      oldValues: { ...existing, passwordChanged: false },
+      newValues: { ...updated, loginUsername: targetUsername, loginStatus: mergedInput.loginStatus, passwordChanged },
+      changeSummary: `Updated Head Office details for "${updated.name}" [${updated.code}]${passwordMsg}`,
     });
 
-    return updated;
+    return {
+      ...updated,
+      loginUsername: targetUsername,
+      loginStatus: mergedInput.loginStatus || effectiveStatus,
+    };
   }
 
   /**
@@ -657,6 +906,30 @@ export class HeadOfficeService {
         adminContactPerson: true,
       },
     });
+
+    // Also sync User account status if available
+    try {
+      if (prisma.user?.findFirst && prisma.user?.update) {
+        const user = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: existing.code.toLowerCase() },
+              { username: existing.code.toLowerCase().replace(/-/g, '_') },
+              ...(existing.email ? [{ email: existing.email }] : []),
+            ],
+          },
+        });
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { status },
+          });
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
 
     const action = status === 'ACTIVE' ? 'ACTIVATE' : 'DEACTIVATE';
     const reasonText = reason ? ` (Reason: ${reason})` : '';
@@ -691,4 +964,3 @@ export class HeadOfficeService {
     return logs;
   }
 }
-

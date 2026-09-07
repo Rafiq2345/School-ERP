@@ -66,25 +66,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
-// Hierarchy Node Definition
-interface OrgHierarchyNode {
-  level: string;
-  name: string;
-  code?: string;
-  type: string;
-  icon: React.ReactNode;
-  isRootContext?: boolean;
-}
-
-const DEFAULT_HIERARCHY: OrgHierarchyNode[] = [
-  { level: 'Organization', name: 'Al-Falah Educational Network', code: 'ORG-ROOT', type: 'Parent Trust (Super-Admin Context)', icon: <Globe className="w-4 h-4 text-blue-600" />, isRootContext: true },
-  { level: 'Head Office', name: 'Karachi Head Office', code: 'HO-KHI', type: 'Executive Administration', icon: <Building2 className="w-4 h-4 text-indigo-600" /> },
-  { level: 'Region', name: 'Karachi Region', code: 'REG-KHI', type: 'Regional Directorate', icon: <Compass className="w-4 h-4 text-sky-600" /> },
-  { level: 'Zone / Area', name: 'North Zone', code: 'ZN-NORTH', type: 'Cluster Administration (Optional)', icon: <MapPin className="w-4 h-4 text-emerald-600" /> },
-  { level: 'Region', name: 'Karachi Region', code: 'REG-KHI', type: 'Regional Directorate (Optional)', icon: <Compass className="w-4 h-4 text-sky-600" /> },
-  { level: 'Zone / Area', name: 'North Zone', code: 'ZN-NORTH', type: 'Cluster Administration (Optional)', icon: <Layers className="w-4 h-4 text-purple-600" /> },
-  { level: 'Branch / School', name: 'North Campus 1 (SCH-001)', code: 'SCH-001', type: 'Active Institution', icon: <School className="w-4 h-4 text-amber-600" /> },
-];
 
 // Configuration Card Definition
 interface ConfigCard {
@@ -115,7 +96,7 @@ const CONFIG_TABS: ConfigTab[] = [
     label: 'Organization & School',
     shortLabel: 'Org & School',
     icon: <Building2 className="w-4 h-4" />,
-    description: 'Operational structure, administrative secretariats, branches, campus profiles, sessions & branch preferences.',
+    description: 'Operational structure, administrative secretariats, regional directorates, zones & branch campuses registry.',
     cards: [
       {
         id: 'head-offices',
@@ -151,41 +132,11 @@ const CONFIG_TABS: ConfigTab[] = [
         id: 'branches',
         title: 'Branches & Campuses Registry',
         description: 'Register and manage institutional schools/campuses under the appropriate Region/Zone with facility specifications.',
-        href: '/admin/settings/profile',
-        badge: '1 Active Campus',
-        badgeType: 'success',
+        href: '/admin/settings/branches',
+        badge: 'Tier 4 Institution',
+        badgeType: 'warning',
         params: ['Branch Code: SCH-001', 'Campus Type: Co-Ed', 'Shift Model: Morning', 'Capacity: 1,200'],
         icon: <School className="w-4 h-4 text-amber-600" />,
-      },
-      {
-        id: 'school-info',
-        title: 'School / Branch Information',
-        description: 'Configure branch-specific details: bilingual name, school code, registration info, address, contact, timezone (Asia/Karachi) & principal.',
-        href: '/admin/settings/profile',
-        badge: 'SCH-001 (Active)',
-        badgeType: 'success',
-        params: ['Bilingual Title (EN/UR)', 'Timezone: Asia/Karachi', 'Currency: PKR (Rs)', 'Principal Office'],
-        icon: <Building className="w-4 h-4 text-blue-600" />,
-      },
-      {
-        id: 'academic-sessions',
-        title: 'Academic Year & Sessions',
-        description: 'Manage academic years, session lifecycle, active session (2026-2027), term date boundaries & promotion cutoff defaults.',
-        href: '/admin/settings/academic-years',
-        badge: '2026-2027 Active',
-        badgeType: 'success',
-        params: ['Active Session: 2026-2027', 'Term Boundaries', 'Session Locking', 'Promotion Cutoff'],
-        icon: <Calendar className="w-4 h-4 text-emerald-600" />,
-      },
-      {
-        id: 'system-prefs',
-        title: 'System Preferences & Policies',
-        description: 'School/branch-level operational preferences, locale defaults, auto-lock policies, multi-factor authentication & security settings.',
-        href: '/admin/settings/roles',
-        badge: 'Standard Rules',
-        badgeType: 'default',
-        params: ['Session Timeout: 30m', 'Locale: Bilingual (EN/UR)', 'Audit Trail: Enabled', 'Lockout Limit: 5'],
-        icon: <ShieldCheck className="w-4 h-4 text-purple-600" />,
       },
     ],
   },
@@ -804,6 +755,16 @@ const CONFIG_TABS: ConfigTab[] = [
     description: 'Working days, weekly off-days, gazetted public holidays, vacation periods & academic event schedules.',
     cards: [
       {
+        id: 'academic-sessions',
+        title: 'Academic Year & Sessions',
+        description: 'Manage academic years, session lifecycle, active session (2026-2027), term date boundaries & promotion cutoff defaults.',
+        href: '/admin/settings/academic-years',
+        badge: '2026-2027 Active',
+        badgeType: 'success',
+        params: ['Active Session: 2026-2027', 'Term Boundaries', 'Session Locking', 'Promotion Cutoff'],
+        icon: <Calendar className="w-4 h-4 text-emerald-600" />,
+      },
+      {
         id: 'working-days',
         title: 'Weekly Working Days',
         description: '5-day / 6-day week configuration, Saturday half-day rules or alternate non-working Saturdays.',
@@ -1365,7 +1326,6 @@ const CONFIG_TABS: ConfigTab[] = [
 export default function AdministrationConfigurationPage() {
   const [activeTabId, setActiveTabId] = useState('org-school');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isHierarchyExpanded, setIsHierarchyExpanded] = useState(false);
   const [activeTimetableProfile, setActiveTimetableProfile] = useState('NORMAL');
 
   // Selected Active Tab
@@ -1449,99 +1409,7 @@ export default function AdministrationConfigurationPage() {
         </div>
       </div>
 
-      {/* 2. DYNAMIC MULTI-TIER ORGANIZATION HIERARCHY STRIP */}
-      <div className="w-full bg-white rounded-xl border border-slate-200/90 shadow-2xs p-3 space-y-2">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-          <div className="flex items-center gap-2">
-            <FolderTree className="w-4 h-4 text-blue-600" />
-            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Institutional Multi-Tier Organization Progression
-            </span>
-            <span className="text-3xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 hidden sm:inline">
-              Operational Management from Head Office Downwards
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsHierarchyExpanded(!isHierarchyExpanded)}
-            className="text-3xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            <span>{isHierarchyExpanded ? 'Hide Hierarchy Tree' : 'View Hierarchy Tree'}</span>
-            <ChevronDown className={`w-3 h-3 transition-transform ${isHierarchyExpanded ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
-
-        {/* Dynamic Horizontal Progression Ribbon */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1 text-2xs">
-          {DEFAULT_HIERARCHY.map((node, idx) => (
-            <React.Fragment key={idx}>
-              <div
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border transition-all shrink-0 ${
-                  node.isRootContext
-                    ? 'bg-slate-50 border-slate-200/80 text-slate-700'
-                    : 'bg-blue-50/40 border-blue-200/60 hover:border-blue-300 hover:bg-blue-50/80 text-slate-900'
-                }`}
-              >
-                <div className="p-1 rounded bg-white border border-slate-200 shadow-2xs">
-                  {node.icon}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{node.level}</span>
-                    {node.code && <span className="text-[9px] font-semibold text-slate-500">[{node.code}]</span>}
-                    {node.isRootContext && (
-                      <span className="text-[9px] font-extrabold text-blue-600 bg-blue-100/70 px-1 rounded">Root Context</span>
-                    )}
-                  </div>
-                  <p className="text-xs font-bold text-slate-900 truncate max-w-[150px] sm:max-w-[180px]">
-                    {node.name}
-                  </p>
-                </div>
-              </div>
-
-              {idx < DEFAULT_HIERARCHY.length - 1 && (
-                <div className="text-slate-300 shrink-0 font-bold px-0.5">
-                  &rarr;
-                </div>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        {/* Collapsible Hierarchy Architecture Explorer */}
-        {isHierarchyExpanded && (
-          <div className="pt-2 border-t border-slate-100 text-xs text-slate-600 space-y-2 animate-in fade-in duration-150">
-            <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-slate-900 text-xs">Hierarchy Scalability Architecture</p>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
-                    Active Multi-Branch Structure
-                  </span>
-                </div>
-                <p className="text-3xs text-slate-500">
-                  Root Organization (<span className="font-semibold text-slate-700">Al-Falah Educational Network</span>) provides parent brand governance. School administration manages <span className="font-semibold text-slate-700">Head Offices &rarr; Regions &rarr; Zones &rarr; Campuses</span> directly.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Link href="/admin/settings/head-offices">
-                  <Button variant="outline" size="sm" className="h-7 text-3xs font-bold px-2.5">
-                    Manage Head Offices
-                  </Button>
-                </Link>
-                <Link href="/admin/settings/profile">
-                  <Button variant="primary" size="sm" className="h-7 text-3xs font-bold px-2.5">
-                    Manage Campuses
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. ONE HORIZONTAL CONFIGURATION TAB ROW (12 TABS) */}
+      {/* 2. ONE HORIZONTAL CONFIGURATION TAB ROW (12 TABS) */}
       <div className="w-full bg-white rounded-xl border border-slate-200/90 shadow-2xs p-1.5">
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-xs">
           {CONFIG_TABS.map((tab) => {
@@ -1575,27 +1443,29 @@ export default function AdministrationConfigurationPage() {
         </div>
       </div>
 
-      {/* 4. ACTIVE TAB CONTENT HEADER (SINGLE TAB DISPLAY) */}
-      <div className="w-full bg-slate-100/60 rounded-xl border border-slate-200/80 p-2.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/60 shrink-0">
-            {activeTab.icon}
+      {/* 3. ACTIVE TAB CONTENT HEADER (SINGLE TAB DISPLAY) */}
+      {activeTabId !== 'org-school' && (
+        <div className="w-full bg-slate-100/60 rounded-xl border border-slate-200/80 p-2.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200/60 shrink-0">
+              {activeTab.icon}
+            </div>
+            <div>
+              <h2 className="text-xs sm:text-sm font-bold text-slate-900">{activeTab.label} Configuration</h2>
+              <p className="text-3xs text-slate-500 leading-tight">{activeTab.description}</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xs sm:text-sm font-bold text-slate-900">{activeTab.label} Configuration</h2>
-            <p className="text-3xs text-slate-500 leading-tight">{activeTab.description}</p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2 text-3xs font-semibold text-slate-500 shrink-0">
-          <span>Displaying {filteredCards.length} of {activeTab.cards.length} configurations</span>
-          {searchQuery && (
-            <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-              Filtered
-            </span>
-          )}
+          <div className="flex items-center gap-2 text-3xs font-semibold text-slate-500 shrink-0">
+            <span>Displaying {filteredCards.length} of {activeTab.cards.length} configurations</span>
+            {searchQuery && (
+              <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                Filtered
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* SPECIAL SUB-HEADER FOR TIMETABLE TAB (PROFILE SWITCHER) */}
       {activeTabId === 'timetable' && (
@@ -1778,34 +1648,22 @@ export default function AdministrationConfigurationPage() {
               <span>Add Head Office</span>
             </Button>
           </Link>
-          <Link href="/admin/settings/profile">
+          <Link href="/admin/settings/regions?action=new">
             <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
               <Plus className="w-3 h-3 text-indigo-600" />
               <span>Add Region</span>
             </Button>
           </Link>
-          <Link href="/admin/settings/profile">
+          <Link href="/admin/settings/zones?action=new">
+            <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
+              <Plus className="w-3 h-3 text-purple-600" />
+              <span>Add Zone</span>
+            </Button>
+          </Link>
+          <Link href="/admin/settings/branches?action=new">
             <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
               <Plus className="w-3 h-3 text-emerald-600" />
               <span>Add Branch</span>
-            </Button>
-          </Link>
-          <Link href="/admin/settings/academic-years">
-            <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
-              <Calendar className="w-3 h-3 text-amber-600" />
-              <span>Manage Academic Year</span>
-            </Button>
-          </Link>
-          <Link href="/admin/settings/profile">
-            <Button variant="outline" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
-              <Building className="w-3 h-3 text-sky-600" />
-              <span>View Branches</span>
-            </Button>
-          </Link>
-          <Link href="/admin/settings/roles">
-            <Button variant="primary" size="sm" className="h-8 text-3xs font-bold flex items-center gap-1">
-              <Settings className="w-3 h-3" />
-              <span>System Settings</span>
             </Button>
           </Link>
         </div>

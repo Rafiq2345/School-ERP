@@ -28,6 +28,19 @@ vi.mock('../src/lib/db/prisma', () => {
       create: vi.fn(),
       update: vi.fn(),
     },
+    user: {
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      deleteMany: vi.fn(),
+    },
+    role: {
+      findFirst: vi.fn(),
+    },
+    userRole: {
+      create: vi.fn().mockResolvedValue({}),
+    },
     schoolProfile: {
       findUnique: vi.fn(),
     },
@@ -53,14 +66,6 @@ vi.mock('../src/lib/db/prisma', () => {
       findFirst: vi.fn(),
       create: vi.fn(),
     },
-    globalTimezone: {
-      findMany: vi.fn(),
-      upsert: vi.fn(),
-    },
-    globalCurrency: {
-      findMany: vi.fn(),
-      upsert: vi.fn(),
-    },
     employee: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -69,16 +74,19 @@ vi.mock('../src/lib/db/prisma', () => {
       findMany: vi.fn(),
       create: vi.fn(),
     },
+    $executeRawUnsafe: vi.fn().mockResolvedValue(1),
   };
 
   return { prisma: mockPrisma };
 });
 
-describe('ZoneService (Phase 3: Zone / Area Management)', () => {
+describe('ZoneService (Phase 3: Zone / Area Management Redesign)', () => {
   const mockTenantId = 'tenant-sch-001';
   const mockUserId = 'usr-admin-01';
   const mockHeadOfficeId = 'ho-khi-001';
+  const mockHeadOffice2Id = 'ho-lah-002';
   const mockRegionId = 'reg-khi-001';
+  const mockForeignRegionId = 'reg-lah-002';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,457 +95,488 @@ describe('ZoneService (Phase 3: Zone / Area Management)', () => {
     vi.mocked(prisma.region.count).mockResolvedValue(1);
   });
 
-  describe('ensureDefaultZone', () => {
-    it('should create default zone when count is 0', async () => {
-      vi.mocked(prisma.zone.count).mockResolvedValue(0);
+  describe('Hierarchy Rule 1: Parent Head Office is strictly Mandatory', () => {
+    it('rejects zone creation without a parent head office', async () => {
+      const input: any = {
+        name: 'Invalid Test Zone',
+        code: 'ZN-TEST-INV',
+        city: 'Karachi',
+        addressLine1: 'Test Address Line 1',
+        phone: '+92 21 34567890',
+        email: 'zone@test.com',
+      };
+
+      await expect(ZoneService.createZone(mockTenantId, input, mockUserId)).rejects.toThrow(
+        'Parent Head Office selection is mandatory. A Zone must always belong to a Head Office.'
+      );
+    });
+
+    it('rejects zone creation if parent head office does not exist', async () => {
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue(null);
+
+      const input: any = {
+        headOfficeId: 'ho-non-existent',
+        name: 'Invalid Test Zone',
+        code: 'ZN-TEST-INV',
+        city: 'Karachi',
+        addressLine1: 'Test Address Line 1',
+        phone: '+92 21 34567890',
+        email: 'zone@test.com',
+      };
+
+      await expect(ZoneService.createZone(mockTenantId, input, mockUserId)).rejects.toThrow(
+        'Selected Parent Head Office does not exist or does not belong to this organization.'
+      );
+    });
+  });
+
+  describe('Hierarchy Rule 2: Parent Region is Optional & Must Belong to Parent Head Office', () => {
+    beforeEach(() => {
       vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
         id: mockHeadOfficeId,
         tenantId: mockTenantId,
         name: 'Karachi Central Head Office',
         code: 'HO-KHI-001',
         city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
         status: 'ACTIVE',
       } as any);
-
-      vi.mocked(prisma.region.findFirst).mockResolvedValue({
-        id: mockRegionId,
-        tenantId: mockTenantId,
-        headOfficeId: mockHeadOfficeId,
-        name: 'Southern Sindh & Karachi Region',
-        code: 'REG-KHI-001',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        status: 'ACTIVE',
-      } as any);
-
-      const createdObj = {
-        id: 'zone-default-01',
-        tenantId: mockTenantId,
-        headOfficeId: mockHeadOfficeId,
-        regionId: mockRegionId,
-        name: 'Karachi Central Academic Zone',
-        code: 'ZN-KHI-001',
-        shortName: 'KC-ZONE',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        phone: '+92 21 34981122',
-        email: 'zone.central@greenwood.edu.pk',
-        status: 'ACTIVE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
-
-      const result = await ZoneService.ensureDefaultZone(mockTenantId, mockUserId);
-      expect(result).not.toBeNull();
-      expect(result?.code).toBe('ZN-KHI-001');
-      expect(prisma.zone.create).toHaveBeenCalledTimes(1);
     });
 
-    it('should do nothing if zones already exist', async () => {
-      vi.mocked(prisma.zone.count).mockResolvedValue(2);
-      const result = await ZoneService.ensureDefaultZone(mockTenantId);
-      expect(result).toBeNull();
-      expect(prisma.zone.create).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('generateZoneCode', () => {
-    it('should generate formatted code using prefix', async () => {
-      vi.mocked(prisma.zone.findMany).mockResolvedValue([]);
-      const code = await ZoneService.generateZoneCode(mockTenantId, 'KHI');
-      expect(code).toBe('ZN-KHI-001');
-    });
-
-    it('should increment sequence if zones with prefix exist', async () => {
-      vi.mocked(prisma.zone.findMany).mockResolvedValue([
-        { code: 'ZN-KHI-001' },
-      ] as any);
-      const code = await ZoneService.generateZoneCode(mockTenantId, 'KHI');
-      expect(code).toBe('ZN-KHI-002');
-    });
-  });
-
-  describe('getZones', () => {
-    it('should return list of zones, parent hierarchy, direct HO count, and aggregate stats', async () => {
-      vi.mocked(prisma.zone.count).mockResolvedValue(2);
-      const mockList = [
-        {
-          id: 'zone-1',
-          tenantId: mockTenantId,
-          headOfficeId: mockHeadOfficeId,
-          regionId: mockRegionId,
-          name: 'Karachi Central Academic Zone',
-          code: 'ZN-KHI-001',
-          shortName: 'KC-ZONE',
-          city: 'Karachi',
-          state: 'Sindh',
-          country: 'Pakistan',
-          phone: '+92 21 34981122',
-          email: 'zone.central@greenwood.edu.pk',
-          status: 'ACTIVE',
-          headOffice: { id: mockHeadOfficeId, name: 'Karachi Central Head Office', code: 'HO-KHI-001' },
-          region: { id: mockRegionId, name: 'Southern Sindh & Karachi Region', code: 'REG-KHI-001' },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: 'zone-2',
-          tenantId: mockTenantId,
-          headOfficeId: mockHeadOfficeId,
-          regionId: null, // Direct Head Office Attachment
-          name: 'Clifton & Defence Cluster',
-          code: 'ZN-CLF-001',
-          shortName: 'CD-ZONE',
-          city: 'Karachi',
-          state: 'Sindh',
-          country: 'Pakistan',
-          phone: '+92 21 35889900',
-          email: 'zone.clifton@greenwood.edu.pk',
-          status: 'ACTIVE',
-          headOffice: { id: mockHeadOfficeId, name: 'Karachi Central Head Office', code: 'HO-KHI-001' },
-          region: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ];
-
-      vi.mocked(prisma.zone.findMany)
-        .mockResolvedValueOnce(mockList as any) // filtered items
-        .mockResolvedValueOnce([
-          { id: 'zone-1', status: 'ACTIVE', city: 'Karachi', headOfficeId: mockHeadOfficeId, regionId: mockRegionId },
-          { id: 'zone-2', status: 'ACTIVE', city: 'Karachi', headOfficeId: mockHeadOfficeId, regionId: null },
-        ] as any); // all records for stats
-
-      vi.mocked(prisma.headOffice.findMany).mockResolvedValue([
-        { id: mockHeadOfficeId, name: 'Karachi Central Head Office', code: 'HO-KHI-001', city: 'Karachi', status: 'ACTIVE' },
-      ] as any);
-
-      vi.mocked(prisma.region.findMany).mockResolvedValue([
-        { id: mockRegionId, name: 'Southern Sindh & Karachi Region', code: 'REG-KHI-001', shortName: 'SSK-REG', city: 'Karachi', status: 'ACTIVE', headOfficeId: mockHeadOfficeId },
-      ] as any);
-
-      const result = await ZoneService.getZones(mockTenantId, { search: 'Clifton' });
-      expect(result.items).toHaveLength(2);
-      expect(result.stats.total).toBe(2);
-      expect(result.stats.active).toBe(2);
-      expect(result.stats.inactive).toBe(0);
-      expect(result.stats.archived).toBe(0);
-      expect(result.stats.directHoCount).toBe(1);
-      expect(result.stats.headOfficesCount).toBe(1);
-      expect(result.stats.regionsCount).toBe(1);
-      expect(result.stats.citiesCount).toBe(1);
-      expect(result.stats.availableHeadOffices).toHaveLength(1);
-      expect(result.stats.availableRegions).toHaveLength(1);
-    });
-  });
-
-  describe('createZone', () => {
-    it('should create zone with full hierarchy (HO -> Region -> Zone)', async () => {
+    it('creates a Direct Head Office Zone when Parent Region is omitted (regionId: null)', async () => {
       vi.mocked(prisma.zone.findUnique).mockResolvedValue(null);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-        name: 'Karachi Central Head Office',
-        country: 'Pakistan',
-        state: 'Sindh',
-        city: 'Karachi',
-      } as any);
-      vi.mocked(prisma.region.findFirst).mockResolvedValue({
-        id: mockRegionId,
-        tenantId: mockTenantId,
-        headOfficeId: mockHeadOfficeId,
-        name: 'Southern Sindh & Karachi Region',
-        country: 'Pakistan',
-        state: 'Sindh',
-        city: 'Karachi',
-      } as any);
-
-      const input = {
-        headOfficeId: mockHeadOfficeId,
-        regionId: mockRegionId,
-        name: 'Gulshan Academic Zone',
-        code: 'zn-gul-001',
-        shortName: 'gul-zn',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        phone: '+92 21 34991100',
-        email: 'gulshan.zone@greenwood.edu.pk',
-        coveredDistricts: 'Gulshan-e-Iqbal, University Road',
-      };
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
 
       const createdObj = {
-        id: 'zone-3',
-        tenantId: mockTenantId,
-        headOfficeId: mockHeadOfficeId,
-        regionId: mockRegionId,
-        name: 'Gulshan Academic Zone',
-        code: 'ZN-GUL-001',
-        shortName: 'GUL-ZN',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        phone: '+92 21 34991100',
-        email: 'gulshan.zone@greenwood.edu.pk',
-        coveredDistricts: 'Gulshan-e-Iqbal, University Road',
-        status: 'ACTIVE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
-
-      const res = await ZoneService.createZone(mockTenantId, input, mockUserId);
-      expect(res.code).toBe('ZN-GUL-001');
-      expect(res.shortName).toBe('GUL-ZN');
-      expect(prisma.zone.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            headOfficeId: mockHeadOfficeId,
-            regionId: mockRegionId,
-            code: 'ZN-GUL-001',
-            name: 'Gulshan Academic Zone',
-          }),
-        })
-      );
-    });
-
-    it('should create zone with direct Head Office attachment (no region)', async () => {
-      vi.mocked(prisma.zone.findUnique).mockResolvedValue(null);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-        name: 'Karachi Central Head Office',
-        country: 'Pakistan',
-        state: 'Sindh',
-        city: 'Karachi',
-      } as any);
-
-      const input = {
-        headOfficeId: mockHeadOfficeId,
-        regionId: null, // Direct attachment
-        name: 'Direct Central Zone',
-        code: 'ZN-DIR-001',
-        shortName: 'DIR-ZN',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        phone: '+92 21 34998877',
-        email: 'direct.zone@greenwood.edu.pk',
-      };
-
-      const createdObj = {
-        id: 'zone-dir-01',
+        id: 'zone-direct-001',
         tenantId: mockTenantId,
         headOfficeId: mockHeadOfficeId,
         regionId: null,
         name: 'Direct Central Zone',
         code: 'ZN-DIR-001',
-        shortName: 'DIR-ZN',
+        shortName: null,
         city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'direct.zone@test.edu.pk',
         status: 'ACTIVE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
       };
 
       vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
 
-      const res = await ZoneService.createZone(mockTenantId, input, mockUserId);
-      expect(res.code).toBe('ZN-DIR-001');
-      expect(res.regionId).toBeNull();
+      const result = await ZoneService.createZone(
+        mockTenantId,
+        {
+          headOfficeId: mockHeadOfficeId,
+          regionId: null,
+          name: 'Direct Central Zone',
+          code: 'ZN-DIR-001',
+          city: 'Karachi',
+          addressLine1: 'Main Branch Plaza, Shahrah-e-Faisal',
+          phone: '+92 21 34567890',
+          email: 'direct.zone@test.edu.pk',
+        },
+        mockUserId
+      );
+
+      expect(result.regionId).toBeNull();
       expect(prisma.zone.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             headOfficeId: mockHeadOfficeId,
             regionId: null,
-            code: 'ZN-DIR-001',
+            name: 'Direct Central Zone',
           }),
         })
       );
     });
 
-    it('should throw error on missing parent head office', async () => {
-      await expect(
-        ZoneService.createZone(mockTenantId, {
-          headOfficeId: '',
-          name: 'Zone Test',
-          code: 'ZN-TEST-001',
-        })
-      ).rejects.toThrow('Parent Head Office selection is required.');
-    });
-
-    it('should throw error when parent region does not belong to selected head office', async () => {
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-      } as any);
-
+    it('creates a Head Office -> Region -> Zone when a valid matching Region is selected', async () => {
       vi.mocked(prisma.region.findFirst).mockResolvedValue({
-        id: 'reg-other-ho',
+        id: mockRegionId,
         tenantId: mockTenantId,
-        headOfficeId: 'ho-other-id', // Mismatch!
-        name: 'Other Region',
+        headOfficeId: mockHeadOfficeId, // matching head office
+        name: 'Southern Sindh Region',
+        code: 'REG-KHI-001',
+        status: 'ACTIVE',
       } as any);
 
-      await expect(
-        ZoneService.createZone(mockTenantId, {
-          headOfficeId: mockHeadOfficeId,
-          regionId: 'reg-other-ho',
-          name: 'Zone Test',
-          code: 'ZN-TEST-001',
-        })
-      ).rejects.toThrow('Selected Parent Region does not belong to the selected Parent Head Office.');
-    });
+      vi.mocked(prisma.zone.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
 
-    it('should throw error on duplicate zone code', async () => {
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-      } as any);
-
-      vi.mocked(prisma.zone.findUnique).mockResolvedValue({
-        id: 'zone-existing',
-        tenantId: mockTenantId,
-        code: 'ZN-KHI-001',
-      } as any);
-
-      await expect(
-        ZoneService.createZone(mockTenantId, {
-          headOfficeId: mockHeadOfficeId,
-          name: 'Duplicate Zone',
-          code: 'ZN-KHI-001',
-        })
-      ).rejects.toThrow('already exists');
-    });
-  });
-
-  describe('updateZone', () => {
-    it('should update zone details successfully', async () => {
-      const existing = {
-        id: 'zone-1',
+      const createdObj = {
+        id: 'zone-nested-001',
         tenantId: mockTenantId,
         headOfficeId: mockHeadOfficeId,
         regionId: mockRegionId,
-        name: 'Old Zone Name',
-        code: 'ZN-KHI-001',
+        name: 'Karachi Gulshan Zone',
+        code: 'ZN-GUL-001',
+        shortName: null,
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'gulshan.zone@test.edu.pk',
+        status: 'ACTIVE',
+      };
+
+      vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
+
+      const result = await ZoneService.createZone(
+        mockTenantId,
+        {
+          headOfficeId: mockHeadOfficeId,
+          regionId: mockRegionId,
+          name: 'Karachi Gulshan Zone',
+          code: 'ZN-GUL-001',
+          city: 'Karachi',
+          addressLine1: 'Block 6, Gulshan-e-Iqbal',
+          phone: '+92 21 34567890',
+          email: 'gulshan.zone@test.edu.pk',
+        },
+        mockUserId
+      );
+
+      expect(result.regionId).toBe(mockRegionId);
+    });
+
+    it('rejects zone creation if selected Parent Region belongs to a different Head Office', async () => {
+      vi.mocked(prisma.region.findFirst).mockResolvedValue({
+        id: mockForeignRegionId,
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOffice2Id, // DIFFERENT head office!
+        name: 'Lahore Northern Region',
+        code: 'REG-LHR-002',
+        status: 'ACTIVE',
+      } as any);
+
+      const input = {
+        headOfficeId: mockHeadOfficeId,
+        regionId: mockForeignRegionId,
+        name: 'Mismatched Zone',
+        code: 'ZN-MIS-001',
+        city: 'Karachi',
+        addressLine1: 'Block 1, PECHS',
+        phone: '+92 21 34567890',
+        email: 'mismatch.zone@test.edu.pk',
+      };
+
+      await expect(ZoneService.createZone(mockTenantId, input, mockUserId)).rejects.toThrow(
+        'Selected Parent Region does not belong to the selected Parent Head Office.'
+      );
+    });
+  });
+
+  describe('Re-parenting Integrity', () => {
+    it('safely re-parents a Direct Head Office Zone into a Region-attached Zone', async () => {
+      const existingZone = {
+        id: 'zone-reparent-001',
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        regionId: null, // initially direct HO
+        name: 'Flexible Zone',
+        code: 'ZN-FLX-001',
+        shortName: null,
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'flx@test.edu.pk',
+        status: 'ACTIVE',
+        loginUsername: 'zn_flx_001',
+      };
+
+      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existingZone as any);
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
+        id: mockHeadOfficeId,
+        tenantId: mockTenantId,
+        name: 'Central Head Office',
+      } as any);
+      vi.mocked(prisma.region.findFirst).mockResolvedValue({
+        id: mockRegionId,
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        name: 'Southern Sindh Region',
+      } as any);
+
+      vi.mocked(prisma.zone.update).mockResolvedValue({
+        ...existingZone,
+        regionId: mockRegionId,
+      } as any);
+
+      const updated = await ZoneService.updateZone(
+        mockTenantId,
+        'zone-reparent-001',
+        { regionId: mockRegionId },
+        mockUserId
+      );
+
+      expect(updated.regionId).toBe(mockRegionId);
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            changeSummary: expect.stringContaining('Re-parented'),
+          }),
+        })
+      );
+    });
+
+    it('safely removes Region association and re-parents to Direct Head Office', async () => {
+      const existingZone = {
+        id: 'zone-reparent-002',
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        regionId: mockRegionId, // initially nested
+        name: 'Flexible Zone 2',
+        code: 'ZN-FLX-002',
+        shortName: null,
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'flx2@test.edu.pk',
+        status: 'ACTIVE',
+        region: { name: 'Southern Sindh Region' },
+        loginUsername: 'zn_flx_002',
+      };
+
+      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existingZone as any);
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
+        id: mockHeadOfficeId,
+        tenantId: mockTenantId,
+        name: 'Central Head Office',
+      } as any);
+
+      vi.mocked(prisma.zone.update).mockResolvedValue({
+        ...existingZone,
+        regionId: null,
+      } as any);
+
+      const updated = await ZoneService.updateZone(
+        mockTenantId,
+        'zone-reparent-002',
+        { regionId: 'NONE' },
+        mockUserId
+      );
+
+      expect(updated.regionId).toBeNull();
+    });
+  });
+
+  describe('Branding Assets & Login Access Creation', () => {
+    it('creates zone with branding asset URLs and creates linked user record with scrypt hashing', async () => {
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
+        id: mockHeadOfficeId,
+        tenantId: mockTenantId,
+        name: 'Karachi Central Head Office',
         city: 'Karachi',
         status: 'ACTIVE',
-      };
-
-      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existing as any);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId } as any);
-      vi.mocked(prisma.region.findFirst).mockResolvedValue({ id: mockRegionId, headOfficeId: mockHeadOfficeId } as any);
+      } as any);
       vi.mocked(prisma.zone.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.user.create).mockResolvedValue({ id: 'usr-zn-001', username: 'zn_khi_admin' } as any);
+      vi.mocked(prisma.role.findFirst).mockResolvedValue({ id: 'role-zone-admin', code: 'ZONE_ADMIN' } as any);
 
-      const updated = {
-        ...existing,
-        name: 'New Zone Name Updated',
-      };
-      vi.mocked(prisma.zone.update).mockResolvedValue(updated as any);
-
-      const res = await ZoneService.updateZone(
-        mockTenantId,
-        'zone-1',
-        { name: 'New Zone Name Updated' },
-        mockUserId
-      );
-
-      expect(res.name).toBe('New Zone Name Updated');
-      expect(prisma.zone.update).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('toggleZoneStatus and archiveZone', () => {
-    it('should safely toggle status from ACTIVE to INACTIVE with audit reason', async () => {
-      const existing = {
-        id: 'zone-1',
+      const createdObj = {
+        id: 'zone-brand-001',
         tenantId: mockTenantId,
-        name: 'Karachi Central Zone',
-        code: 'ZN-KHI-001',
+        headOfficeId: mockHeadOfficeId,
+        regionId: null,
+        name: 'Branded Zone',
+        code: 'ZN-BRD-001',
+        shortName: 'REG-ZN-777',
+        logoUrl: '/uploads/zone/logo.png',
+        signatureUrl: '/uploads/zone/sig.png',
+        stampUrl: '/uploads/zone/stamp.png',
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'branded.zone@test.edu.pk',
         status: 'ACTIVE',
       };
 
-      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existing as any);
-      vi.mocked(prisma.zone.update).mockResolvedValue({
-        ...existing,
-        status: 'INACTIVE',
-      } as any);
+      vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
 
-      const res = await ZoneService.toggleZoneStatus(
+      const result = await ZoneService.createZone(
         mockTenantId,
-        'zone-1',
-        'INACTIVE',
-        'Restructuring cluster',
-        mockUserId
-      );
-
-      expect(res.status).toBe('INACTIVE');
-      expect(prisma.zone.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'zone-1' },
-          data: { status: 'INACTIVE' },
-        })
-      );
-    });
-
-    it('should safely archive zone', async () => {
-      const existing = {
-        id: 'zone-1',
-        tenantId: mockTenantId,
-        name: 'Old Zone',
-        code: 'ZN-OLD-001',
-        status: 'ACTIVE',
-      };
-
-      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existing as any);
-      vi.mocked(prisma.zone.update).mockResolvedValue({
-        ...existing,
-        status: 'ARCHIVED',
-      } as any);
-
-      const res = await ZoneService.archiveZone(
-        mockTenantId,
-        'zone-1',
-        'Merged into North Zone',
-        mockUserId
-      );
-
-      expect(res.status).toBe('ARCHIVED');
-      expect(prisma.zone.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'zone-1' },
-          data: { status: 'ARCHIVED' },
-        })
-      );
-    });
-  });
-
-  describe('getZoneAuditLogs', () => {
-    it('should return audit trail for zone', async () => {
-      const mockLogs = [
         {
-          id: 'log-1',
-          tenantId: mockTenantId,
-          entityType: 'ZONE',
-          entityId: 'zone-1',
-          action: 'CREATE',
-          changeSummary: 'Created Zone',
-          userId: mockUserId,
-          timestamp: new Date(),
+          headOfficeId: mockHeadOfficeId,
+          name: 'Branded Zone',
+          code: 'ZN-BRD-001',
+          registrationNo: 'REG-ZN-777',
+          city: 'Karachi',
+          addressLine1: 'Branding Park Suite 10',
+          phone: '+92 21 34567890',
+          email: 'branded.zone@test.edu.pk',
+          logoUrl: '/uploads/zone/logo.png',
+          signatureUrl: '/uploads/zone/sig.png',
+          stampUrl: '/uploads/zone/stamp.png',
+          loginUsername: 'zn_khi_admin',
+          loginPassword: 'SecurePassword123!',
+          loginStatus: 'ACTIVE',
         },
-      ];
+        mockUserId
+      );
 
-      vi.mocked(prisma.auditLog.findMany).mockResolvedValue(mockLogs as any);
+      expect(result.logoUrl).toBe('/uploads/zone/logo.png');
+      expect(result.signatureUrl).toBe('/uploads/zone/sig.png');
+      expect(result.stampUrl).toBe('/uploads/zone/stamp.png');
+      expect(result.registrationNo).toBe('REG-ZN-777');
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            username: 'zn_khi_admin',
+            userType: 'ADMIN',
+            status: 'ACTIVE',
+          }),
+        })
+      );
+    });
 
-      const logs = await ZoneService.getZoneAuditLogs(mockTenantId, 'zone-1');
-      expect(logs).toHaveLength(1);
-      expect(logs[0].action).toBe('CREATE');
+    it('updates zone and preserves existing password when password is not provided', async () => {
+      const existingZone = {
+        id: 'zone-pwd-001',
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        regionId: null,
+        name: 'Password Test Zone',
+        code: 'ZN-PWD-001',
+        shortName: null,
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'pwd@test.edu.pk',
+        status: 'ACTIVE',
+        loginUsername: 'zn_pwd_001',
+      };
+
+      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existingZone as any);
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId, tenantId: mockTenantId } as any);
+      vi.mocked(prisma.zone.update).mockResolvedValue({ ...existingZone, name: 'Updated Name Zone' } as any);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'usr-001', username: 'zn_pwd_001' } as any);
+
+      await ZoneService.updateZone(
+        mockTenantId,
+        'zone-pwd-001',
+        { name: 'Updated Name Zone' }, // no password
+        mockUserId
+      );
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'usr-001' },
+          data: expect.not.objectContaining({ passwordHash: expect.anything() }),
+        })
+      );
+    });
+
+    it('updates user password when an explicit new password is provided', async () => {
+      const existingZone = {
+        id: 'zone-pwd-002',
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        regionId: null,
+        name: 'Password Reset Zone',
+        code: 'ZN-RST-002',
+        shortName: null,
+        city: 'Karachi',
+        phone: '+92 21 34567890',
+        email: 'rst@test.edu.pk',
+        status: 'ACTIVE',
+        loginUsername: 'zn_rst_002',
+      };
+
+      vi.mocked(prisma.zone.findFirst).mockResolvedValue(existingZone as any);
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId, tenantId: mockTenantId } as any);
+      vi.mocked(prisma.zone.update).mockResolvedValue(existingZone as any);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'usr-002', username: 'zn_rst_002' } as any);
+
+      await ZoneService.updateZone(
+        mockTenantId,
+        'zone-pwd-002',
+        { loginPassword: 'NewSecretPassword999!' },
+        mockUserId
+      );
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'usr-002' },
+          data: expect.objectContaining({
+            passwordHash: expect.any(String),
+          }),
+        })
+      );
+    });
+  });
+
+  describe('Validation & Sanitization', () => {
+    it('validates unique zone code within tenant', async () => {
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId, tenantId: mockTenantId } as any);
+      vi.mocked(prisma.zone.findUnique).mockResolvedValue({ id: 'existing-zn', code: 'ZN-DUP-001' } as any);
+
+      const input = {
+        headOfficeId: mockHeadOfficeId,
+        name: 'Duplicate Zone',
+        code: 'ZN-DUP-001',
+        city: 'Karachi',
+        addressLine1: 'Block 1',
+        phone: '+92 21 34567890',
+        email: 'dup@test.edu.pk',
+      };
+
+      await expect(ZoneService.createZone(mockTenantId, input, mockUserId)).rejects.toThrow(
+        'A Zone with code "ZN-DUP-001" already exists.'
+      );
+    });
+
+    it('validates official email format', async () => {
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId, tenantId: mockTenantId } as any);
+
+      const input = {
+        headOfficeId: mockHeadOfficeId,
+        name: 'Bad Email Zone',
+        code: 'ZN-BAD-001',
+        city: 'Karachi',
+        addressLine1: 'Block 1',
+        phone: '+92 21 34567890',
+        email: 'not-an-email',
+      };
+
+      await expect(ZoneService.createZone(mockTenantId, input, mockUserId)).rejects.toThrow(
+        /valid official email/i
+      );
+    });
+
+    it('sanitizes password and hash from audit logs', async () => {
+      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId, tenantId: mockTenantId } as any);
+      vi.mocked(prisma.zone.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+
+      const createdObj = {
+        id: 'zone-san-001',
+        tenantId: mockTenantId,
+        headOfficeId: mockHeadOfficeId,
+        name: 'Sanitized Zone',
+        code: 'ZN-SAN-001',
+      };
+      vi.mocked(prisma.zone.create).mockResolvedValue(createdObj as any);
+
+      await ZoneService.createZone(
+        mockTenantId,
+        {
+          headOfficeId: mockHeadOfficeId,
+          name: 'Sanitized Zone',
+          code: 'ZN-SAN-001',
+          city: 'Karachi',
+          addressLine1: 'Block 1',
+          phone: '+92 21 34567890',
+          email: 'san@test.edu.pk',
+          loginPassword: 'SuperSecretPassword123!',
+        },
+        mockUserId
+      );
+
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            newValues: expect.not.objectContaining({
+              password: expect.anything(),
+              loginPassword: expect.anything(),
+              passwordHash: expect.anything(),
+            }),
+          }),
+        })
+      );
     });
   });
 });

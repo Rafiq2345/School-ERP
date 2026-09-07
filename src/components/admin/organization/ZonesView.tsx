@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -32,6 +32,12 @@ import {
   Archive,
   ChevronRight,
   Sparkles,
+  Upload,
+  Image as ImageIcon,
+  FileSignature,
+  Stamp,
+  Trash2,
+  Key,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -45,6 +51,7 @@ export interface ZoneItem {
   name: string;
   code: string;
   shortName: string | null;
+  registrationNo?: string | null;
   countryId: string | null;
   stateId: string | null;
   cityId: string | null;
@@ -58,14 +65,19 @@ export interface ZoneItem {
   altPhone: string | null;
   email: string | null;
   website: string | null;
-  managerEmployeeId: string | null;
-  adminContactEmployeeId: string | null;
-  managerName: string | null;
-  adminContact: string | null;
-  coverageNotes: string | null;
-  coveredDistricts: string | null;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  loginUsername?: string | null;
+  loginStatus?: 'ACTIVE' | 'INACTIVE';
+  managerEmployeeId?: string | null;
+  adminContactEmployeeId?: string | null;
+  managerName?: string | null;
+  adminContact?: string | null;
+  coverageNotes?: string | null;
+  coveredDistricts?: string | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
-  remarks: string | null;
+  remarks?: string | null;
   createdAt: string;
   updatedAt: string;
   headOffice?: { id: string; name: string; code: string; city: string; status: string } | null;
@@ -73,22 +85,6 @@ export interface ZoneItem {
   countryRef?: { id: string; name: string; isoCode: string; phoneCallingCode: string; currencyCode: string } | null;
   stateRef?: { id: string; name: string; code: string; type: string } | null;
   cityRef?: { id: string; name: string; code: string } | null;
-  manager?: {
-    id: string;
-    employeeNo: string;
-    firstNameEn: string;
-    lastNameEn: string | null;
-    department?: { name: string } | null;
-    designation?: { name: string } | null;
-  } | null;
-  adminContactPerson?: {
-    id: string;
-    employeeNo: string;
-    firstNameEn: string;
-    lastNameEn: string | null;
-    department?: { name: string } | null;
-    designation?: { name: string } | null;
-  } | null;
 }
 
 interface CountryRef {
@@ -116,18 +112,6 @@ interface CityRef {
   name: string;
 }
 
-interface EmployeeLookupItem {
-  id: string;
-  employeeNo: string;
-  fullName: string;
-  firstNameEn: string;
-  lastNameEn: string | null;
-  department: string | null;
-  designation: string | null;
-  phone: string | null;
-  email: string | null;
-}
-
 interface AuditLogItem {
   id: string;
   action: string;
@@ -152,59 +136,183 @@ interface StatsData {
   availableRegions: { id: string; name: string; code: string; shortName: string | null; city: string; status: string; headOfficeId: string }[];
 }
 
+// Reusable Document / Branding File Uploader Component
+function FileUploadBox({
+  label,
+  assetType,
+  currentUrl,
+  icon: Icon,
+  onUploadSuccess,
+  onRemove,
+}: {
+  label: string;
+  assetType: 'logo' | 'signature' | 'stamp';
+  currentUrl: string | null;
+  icon: React.ElementType;
+  onUploadSuccess: (url: string, fileName: string) => void;
+  onRemove: () => void;
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedName, setUploadedName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { error: toastError, success: toastSuccess } = useToast();
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      toastError('Invalid File Format', 'Please select a PNG, JPG, or JPEG image file.');
+      return;
+    }
+
+    // Validate size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toastError('File Too Large', 'Maximum file size allowed is 2 MB.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('category', 'zone');
+      formData.append('type', assetType);
+
+      const res = await fetch('/api/admin/organization/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to upload file.');
+      }
+
+      setUploadedName(data.data.fileName || file.name);
+      onUploadSuccess(data.data.fileUrl, data.data.fileName || file.name);
+      toastSuccess('Upload Complete', label + ' uploaded successfully.');
+    } catch (err: any) {
+      toastError('Upload Failed', err.message || 'Could not upload file.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700/80 rounded-xl p-3.5 bg-slate-50/50 dark:bg-slate-800/30">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+          <Icon className="w-3.5 h-3.5 text-indigo-500" />
+          {label}
+        </label>
+        {currentUrl && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
+            Attached
+          </span>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {currentUrl ? (
+        <div className="flex items-center gap-3 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+          <div className="w-12 h-12 rounded bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden flex-shrink-0 border border-slate-200 dark:border-slate-600">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={currentUrl} alt={label} className="max-w-full max-h-full object-contain" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+              {uploadedName || currentUrl.split('/').pop() || 'Current File'}
+            </p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">PNG/JPG Image</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isUploading}
+              onClick={() => fileInputRef.current?.click()}
+              className="h-7 text-[11px] px-2"
+            >
+              Replace
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isUploading}
+              onClick={onRemove}
+              className="h-7 text-[11px] px-2 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={isUploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-lg p-3 text-center transition-colors flex flex-col items-center justify-center gap-1 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+        >
+          {isUploading ? (
+            <RefreshCw className="w-4 h-4 animate-spin text-indigo-600 dark:text-indigo-400" />
+          ) : (
+            <Upload className="w-4 h-4" />
+          )}
+          <span className="text-xs font-medium">
+            {isUploading ? 'Uploading...' : ('Upload ' + label + ' (PNG/JPG up to 2MB)')}
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ZonesView() {
   const searchParams = useSearchParams();
-  const { success, error } = useToast();
+  const initialSearch = searchParams?.get('search') || '';
+  const initialHeadOffice = searchParams?.get('headOfficeId') || 'ALL';
+  const initialRegion = searchParams?.get('regionId') || 'ALL';
 
-  const [items, setItems] = useState<ZoneItem[]>([]);
-  const [stats, setStats] = useState<StatsData>({
-    total: 0,
-    active: 0,
-    inactive: 0,
-    archived: 0,
-    directHoCount: 0,
-    headOfficesCount: 0,
-    regionsCount: 0,
-    citiesCount: 0,
-    availableCities: [],
-    availableHeadOffices: [],
-    availableRegions: [],
-  });
-  const [isLoading, setIsLoading] = useState(true);
+  const { success: toastSuccess, error: toastError } = useToast();
 
-  // Reference Masters State
+  // State Management
+  const [zones, setZones] = useState<ZoneItem[]>([]);
+  const [stats, setStats] = useState<StatsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [headOfficeFilter, setHeadOfficeFilter] = useState(initialHeadOffice);
+  const [regionFilter, setRegionFilter] = useState(initialRegion);
+  const [cityFilter, setCityFilter] = useState('ALL');
+
+  // Geographic Master Data (Shared Cascading Source)
   const [countries, setCountries] = useState<CountryRef[]>([]);
   const [states, setStates] = useState<StateRef[]>([]);
   const [cities, setCities] = useState<CityRef[]>([]);
-  const [employees, setEmployees] = useState<EmployeeLookupItem[]>([]);
 
-  // Filters
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [headOfficeFilter, setHeadOfficeFilter] = useState('ALL');
-  const [regionFilter, setRegionFilter] = useState('ALL');
-  const [cityFilter, setCityFilter] = useState('ALL');
-
-  // Form Modal State
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [manualCodeOverride, setManualCodeOverride] = useState(false);
-
-  // Detail Drawer State
-  const [selectedZone, setSelectedZone] = useState<ZoneItem | null>(null);
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<'overview' | 'audit'>('overview');
+  // Modals & Drawers
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [editingZone, setEditingZone] = useState<ZoneItem | null>(null);
+  const [detailZone, setDetailZone] = useState<ZoneItem | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
-  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
-
-  // Status Modal State
-  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
-  const [targetZone, setTargetZone] = useState<ZoneItem | null>(null);
-  const [targetNewStatus, setTargetNewStatus] = useState<'ACTIVE' | 'INACTIVE' | 'ARCHIVED'>('ACTIVE');
-  const [statusReason, setStatusReason] = useState('');
-  const [isStatusSubmitting, setIsStatusSubmitting] = useState(false);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+  const [auditZoneName, setAuditZoneName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -212,1854 +320,1616 @@ export function ZonesView() {
     regionId: '',
     name: '',
     code: '',
-    shortName: '',
+    codeManualOverride: false,
+    registrationNo: '',
+    locationMode: 'REFERENCE' as 'REFERENCE' | 'MANUAL',
     countryId: '',
     stateId: '',
     cityId: '',
     addressLine1: '',
     addressLine2: '',
-    city: '',
-    state: '',
-    country: '',
+    manualCountry: 'Pakistan',
+    manualState: '',
+    manualCity: '',
+    country: 'Pakistan',
+    state: 'Sindh',
+    city: 'Karachi',
     postalCode: '',
     phone: '',
     altPhone: '',
     email: '',
     website: '',
-    managerEmployeeId: '',
-    adminContactEmployeeId: '',
-    managerName: '',
-    adminContact: '',
-    coverageNotes: '',
-    coveredDistricts: '',
+    logoUrl: '' as string | null,
+    signatureUrl: '' as string | null,
+    stampUrl: '' as string | null,
+    loginUsername: '',
+    loginPassword: '',
+    confirmPassword: '',
+    loginStatus: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE' | 'ARCHIVED',
-    remarks: '',
   });
 
-  // Selected Country for dynamic calling code badge
-  const selectedCountryObj = useMemo(() => {
-    return countries.find((c) => c.id === formData.countryId) || null;
-  }, [countries, formData.countryId]);
+  // Load Reference Masters from Shared Endpoint
+  const loadReferenceMasters = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/reference/countries');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setCountries(data.data);
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }, []);
 
-  const activeCallingCode = selectedCountryObj?.phoneCallingCode || '+92';
-
-  // Filter available regions by selected headOfficeId in the form
-  const formAvailableRegions = useMemo(() => {
-    if (!formData.headOfficeId) return stats.availableRegions;
-    return stats.availableRegions.filter((r) => r.headOfficeId === formData.headOfficeId);
-  }, [stats.availableRegions, formData.headOfficeId]);
-
-  // Fetch list of zones
+  // Fetch Zones List
   const fetchZones = useCallback(async () => {
-    setIsLoading(true);
     try {
+      setLoading(true);
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      if (statusFilter !== 'ALL') params.set('status', statusFilter);
-      if (headOfficeFilter !== 'ALL') params.set('headOfficeId', headOfficeFilter);
-      if (regionFilter !== 'ALL') params.set('regionId', regionFilter);
-      if (cityFilter !== 'ALL') params.set('city', cityFilter);
+      if (searchQuery) params.append('search', searchQuery);
+      if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      if (headOfficeFilter !== 'ALL') params.append('headOfficeId', headOfficeFilter);
+      if (regionFilter !== 'ALL') params.append('regionId', regionFilter);
+      if (cityFilter !== 'ALL') params.append('city', cityFilter);
 
-      const res = await fetch(`/api/admin/organization/zones?${params.toString()}`);
+      const res = await fetch('/api/admin/organization/zones?' + params.toString());
       const data = await res.json();
       if (data.success) {
-        setItems(data.data.items || []);
-        setStats(data.data.stats || {
-          total: 0,
-          active: 0,
-          inactive: 0,
-          archived: 0,
-          directHoCount: 0,
-          headOfficesCount: 0,
-          regionsCount: 0,
-          citiesCount: 0,
-          availableCities: [],
-          availableHeadOffices: [],
-          availableRegions: [],
-        });
+        setZones(data.data.items || []);
+        setStats(data.data.stats || null);
       } else {
-        error(data.error?.message || 'Failed to load zones.');
+        toastError('Failed to Load Zones', data.error?.message || 'Unexpected response');
       }
-    } catch {
-      error('Network error loading zones.');
+    } catch (err: any) {
+      toastError('Network Error', err.message || 'Could not connect to server.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  }, [search, statusFilter, headOfficeFilter, regionFilter, cityFilter, error]);
+  }, [searchQuery, statusFilter, headOfficeFilter, regionFilter, cityFilter, toastError]);
 
-  // Fetch Reference Masters (Countries, Employees)
-  const fetchInitialReferenceData = useCallback(async () => {
-    try {
-      const [countriesRes, employeesRes] = await Promise.all([
-        fetch('/api/admin/reference/countries'),
-        fetch('/api/admin/employees/lookup'),
-      ]);
+  useEffect(() => {
+    fetchZones();
+  }, [fetchZones]);
 
-      const countriesData = await countriesRes.json();
-      if (countriesData.success) {
-        setCountries(countriesData.data || []);
+  useEffect(() => {
+    loadReferenceMasters();
+  }, [loadReferenceMasters]);
+
+  // Dynamic Regions Filtered for Form based on selected Head Office
+  const formAvailableRegions = useMemo(() => {
+    if (!formData.headOfficeId || !stats?.availableRegions) return [];
+    return stats.availableRegions.filter((r) => r.headOfficeId === formData.headOfficeId && r.status === 'ACTIVE');
+  }, [formData.headOfficeId, stats?.availableRegions]);
+
+  // Geographic Cascading Handlers
+  const handleCountryChange = async (countryId: string) => {
+    const selectedCountry = countries.find((c) => c.id === countryId);
+    setFormData((prev) => ({
+      ...prev,
+      countryId,
+      country: selectedCountry?.name || 'Pakistan',
+      stateId: '',
+      state: '',
+      cityId: '',
+      city: '',
+    }));
+    setStates([]);
+    setCities([]);
+
+    if (countryId) {
+      try {
+        const res = await fetch('/api/admin/reference/states?countryId=' + countryId);
+        const json = await res.json();
+        if (json.success && json.data) {
+          setStates(json.data);
+        }
+      } catch {
+        // Non-blocking
       }
+    }
+  };
 
-      const employeesData = await employeesRes.json();
-      if (employeesData.success) {
-        setEmployees(employeesData.data || []);
+  const handleStateChange = async (stateId: string) => {
+    const selectedState = states.find((s) => s.id === stateId);
+    setFormData((prev) => ({
+      ...prev,
+      stateId,
+      state: selectedState?.name || '',
+      cityId: '',
+      city: '',
+    }));
+    setCities([]);
+
+    if (stateId) {
+      try {
+        const res = await fetch('/api/admin/reference/cities?stateId=' + stateId);
+        const json = await res.json();
+        if (json.success && json.data) {
+          setCities(json.data);
+        }
+      } catch {
+        // Non-blocking
       }
-    } catch {
-      // Fallback silently
     }
-  }, []);
+  };
 
-  // Fetch States when Country changes
-  const fetchStatesForCountry = useCallback(async (countryId: string) => {
-    if (!countryId) {
-      setStates([]);
-      setCities([]);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/admin/reference/states?countryId=${countryId}`);
-      const data = await res.json();
-      if (data.success) {
-        setStates(data.data || []);
+  const handleCityChange = async (cityId: string) => {
+    const selectedCity = cities.find((c) => c.id === cityId);
+    const cityName = selectedCity?.name || formData.city || 'Karachi';
+    setFormData((prev) => ({
+      ...prev,
+      cityId,
+      city: cityName,
+    }));
+
+    if (!formData.codeManualOverride && !editingZone) {
+      try {
+        const res = await fetch(
+          '/api/admin/organization/zones/generate-code?city=' + encodeURIComponent(cityName)
+        );
+        const json = await res.json();
+        if (json.success && json.data?.code) {
+          setFormData((prev) => ({
+            ...prev,
+            code: json.data.code,
+            loginUsername: prev.loginUsername || json.data.code.toLowerCase().replace(/-/g, '_'),
+          }));
+        }
+      } catch {
+        // Non-blocking
       }
-    } catch {
-      setStates([]);
     }
-  }, []);
+  };
 
-  // Fetch Cities when State changes
-  const fetchCitiesForState = useCallback(async (stateId: string) => {
-    if (!stateId) {
-      setCities([]);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/admin/reference/cities?stateId=${stateId}`);
-      const data = await res.json();
-      if (data.success) {
-        setCities(data.data || []);
+  // Auto-suggest Zone Code from City or Name
+  const generateSuggestedCode = useCallback(
+    async (cityNameOrPrefix?: string) => {
+      try {
+        const res = await fetch(
+          '/api/admin/organization/zones/generate-code?city=' + encodeURIComponent(cityNameOrPrefix || 'GEN')
+        );
+        const data = await res.json();
+        if (data.success && data.data?.code) {
+          return data.data.code;
+        }
+      } catch {
+        // Fallback
       }
-    } catch {
-      setCities([]);
-    }
-  }, []);
+      return 'ZN-GEN-001';
+    },
+    []
+  );
 
-  // Generate Zone Code
-  const handleAutoGenerateCode = useCallback(async (cityCodeOrPrefix?: string) => {
-    try {
-      const prefix = cityCodeOrPrefix || formData.city || 'GEN';
-      const res = await fetch(`/api/admin/organization/zones/generate-code?prefix=${encodeURIComponent(prefix)}`);
-      const data = await res.json();
-      if (data.success && data.data?.code) {
-        setFormData((prev) => ({ ...prev, code: data.data.code }));
+  // Open Add Zone Modal
+  const handleOpenAddModal = async () => {
+    setEditingZone(null);
+
+    // Default to first active head office if available
+    const defaultHO = stats?.availableHeadOffices?.find((h) => h.status === 'ACTIVE') || stats?.availableHeadOffices?.[0];
+
+    // Ensure countries are loaded
+    let activeCountries = countries;
+    if (activeCountries.length === 0) {
+      try {
+        const cRes = await fetch('/api/admin/reference/countries');
+        const cJson = await cRes.json();
+        if (cJson.success && cJson.data) {
+          activeCountries = cJson.data;
+          setCountries(cJson.data);
+        }
+      } catch {
+        // Non-blocking
       }
-    } catch {
-      // Ignore
     }
-  }, [formData.city]);
 
-  // Reset form to defaults
-  const resetForm = useCallback(() => {
-    const defaultHO = stats.availableHeadOffices[0]?.id || '';
+    const defaultPk = activeCountries.find((c) => c.isoCode === 'PK') || activeCountries[0];
+    const defaultCountryId = defaultPk ? defaultPk.id : '';
+
+    const generated = await generateSuggestedCode('KHI');
+    const defaultUsername = generated.toLowerCase().replace(/-/g, '_');
+
     setFormData({
-      headOfficeId: defaultHO,
+      headOfficeId: defaultHO?.id || '',
       regionId: '',
       name: '',
-      code: '',
-      shortName: '',
-      countryId: '',
+      code: generated,
+      codeManualOverride: false,
+      registrationNo: '',
+      locationMode: 'REFERENCE',
+      countryId: defaultCountryId,
       stateId: '',
       cityId: '',
       addressLine1: '',
       addressLine2: '',
-      city: '',
-      state: '',
-      country: '',
+      manualCountry: 'Pakistan',
+      manualState: '',
+      manualCity: '',
+      country: 'Pakistan',
+      state: 'Sindh',
+      city: 'Karachi',
       postalCode: '',
       phone: '',
       altPhone: '',
       email: '',
       website: '',
-      managerEmployeeId: '',
-      adminContactEmployeeId: '',
-      managerName: '',
-      adminContact: '',
-      coverageNotes: '',
-      coveredDistricts: '',
+      logoUrl: null,
+      signatureUrl: null,
+      stampUrl: null,
+      loginUsername: defaultUsername,
+      loginPassword: '',
+      confirmPassword: '',
+      loginStatus: 'ACTIVE',
       status: 'ACTIVE',
-      remarks: '',
     });
-    setManualCodeOverride(false);
-    setIsEditing(false);
-    setEditingId(null);
-  }, [stats.availableHeadOffices]);
 
-  // Open Create Modal
-  const handleOpenCreate = useCallback(() => {
-    resetForm();
-    const defaultHO = stats.availableHeadOffices[0]?.id || '';
-    const pk = countries.find((c) => c.isoCode === 'PK');
-    setFormData((prev) => ({
-      ...prev,
-      headOfficeId: defaultHO,
-      countryId: pk?.id || '',
-      country: pk?.name || 'Pakistan',
-    }));
-    handleAutoGenerateCode('GEN');
-    setIsFormOpen(true);
-  }, [resetForm, stats.availableHeadOffices, countries, handleAutoGenerateCode]);
-
-  // Initial Load
-  useEffect(() => {
-    fetchZones();
-    fetchInitialReferenceData();
-  }, [fetchZones, fetchInitialReferenceData]);
-
-  // Handle URL search params on mount
-  useEffect(() => {
-    const action = searchParams.get('action');
-    if (action === 'create') {
-      handleOpenCreate();
-    }
-  }, [searchParams, handleOpenCreate]);
-
-  // Cascading location effect in form
-  useEffect(() => {
-    if (formData.countryId) {
-      fetchStatesForCountry(formData.countryId);
-    }
-  }, [formData.countryId, fetchStatesForCountry]);
-
-  useEffect(() => {
-    if (formData.stateId) {
-      fetchCitiesForState(formData.stateId);
-    }
-  }, [formData.stateId, fetchCitiesForState]);
-
-  // Open Edit Modal
-  const handleOpenEdit = async (zone: ZoneItem) => {
-    setIsEditing(true);
-    setEditingId(zone.id);
-    setManualCodeOverride(true);
-
-    if (zone.countryId) {
-      await fetchStatesForCountry(zone.countryId);
-      if (zone.stateId) {
-        await fetchCitiesForState(zone.stateId);
+    // Cascading preload for default country (Pakistan -> Sindh -> Karachi)
+    if (defaultCountryId) {
+      try {
+        const sRes = await fetch('/api/admin/reference/states?countryId=' + defaultCountryId);
+        const sJson = await sRes.json();
+        if (sJson.success && sJson.data) {
+          setStates(sJson.data);
+          const sindh = sJson.data.find((s: StateRef) => s.code === 'SD' || s.name.includes('Sindh'));
+          if (sindh) {
+            setFormData((prev) => ({ ...prev, stateId: sindh.id, state: sindh.name }));
+            const cRes = await fetch('/api/admin/reference/cities?stateId=' + sindh.id);
+            const cJson = await cRes.json();
+            if (cJson.success && cJson.data) {
+              setCities(cJson.data);
+              const khi = cJson.data.find((c: CityRef) => c.code === 'KHI' || c.name.includes('Karachi'));
+              if (khi) {
+                setFormData((prev) => ({ ...prev, cityId: khi.id, city: khi.name }));
+              }
+            }
+          }
+        }
+      } catch {
+        // Non-blocking
       }
     }
 
+    setIsFormModalOpen(true);
+  };
+
+  // Open Edit Zone Modal
+  const handleOpenEditModal = async (zone: ZoneItem) => {
+    setEditingZone(zone);
+
+    const hasRefMaster = Boolean(zone.countryId || zone.stateId || zone.cityId);
+    const defaultUsername = zone.loginUsername || zone.code.toLowerCase().replace(/-/g, '_');
+
     setFormData({
-      headOfficeId: zone.headOfficeId || '',
+      headOfficeId: zone.headOfficeId,
       regionId: zone.regionId || '',
       name: zone.name,
       code: zone.code,
-      shortName: zone.shortName || '',
+      codeManualOverride: true,
+      registrationNo: zone.registrationNo || zone.shortName || '',
+      locationMode: hasRefMaster ? 'REFERENCE' : 'MANUAL',
       countryId: zone.countryId || '',
       stateId: zone.stateId || '',
       cityId: zone.cityId || '',
       addressLine1: zone.addressLine1 || '',
       addressLine2: zone.addressLine2 || '',
-      city: zone.city || '',
+      manualCountry: zone.country || 'Pakistan',
+      manualState: zone.state || '',
+      manualCity: zone.city || '',
+      country: zone.country || 'Pakistan',
       state: zone.state || '',
-      country: zone.country || '',
+      city: zone.city || '',
       postalCode: zone.postalCode || '',
       phone: zone.phone || '',
       altPhone: zone.altPhone || '',
       email: zone.email || '',
       website: zone.website || '',
-      managerEmployeeId: zone.managerEmployeeId || '',
-      adminContactEmployeeId: zone.adminContactEmployeeId || '',
-      managerName: zone.managerName || '',
-      adminContact: zone.adminContact || '',
-      coverageNotes: zone.coverageNotes || '',
-      coveredDistricts: zone.coveredDistricts || '',
+      logoUrl: zone.logoUrl || null,
+      signatureUrl: zone.signatureUrl || null,
+      stampUrl: zone.stampUrl || null,
+      loginUsername: defaultUsername,
+      loginPassword: '',
+      confirmPassword: '',
+      loginStatus: zone.loginStatus || (zone.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
       status: zone.status,
-      remarks: zone.remarks || '',
     });
 
-    setIsFormOpen(true);
-  };
-
-  // Open Detail Drawer
-  const handleOpenDetail = async (zone: ZoneItem) => {
-    setSelectedZone(zone);
-    setDetailTab('overview');
-    setIsDetailOpen(true);
-
-    setIsLoadingAudit(true);
-    try {
-      const res = await fetch(`/api/admin/organization/zones/${zone.id}/audit`);
-      const data = await res.json();
-      if (data.success) {
-        setAuditLogs(data.data || []);
+    // Load cascading states and cities for existing record
+    if (zone.countryId) {
+      try {
+        const sRes = await fetch('/api/admin/reference/states?countryId=' + zone.countryId);
+        const sJson = await sRes.json();
+        if (sJson.success && sJson.data) {
+          setStates(sJson.data);
+          if (zone.stateId) {
+            const cRes = await fetch('/api/admin/reference/cities?stateId=' + zone.stateId);
+            const cJson = await cRes.json();
+            if (cJson.success && cJson.data) {
+              setCities(cJson.data);
+            }
+          }
+        }
+      } catch {
+        // Non-blocking
       }
-    } catch {
-      setAuditLogs([]);
-    } finally {
-      setIsLoadingAudit(false);
     }
+
+    setIsFormModalOpen(true);
   };
 
-  // Handle Form Submit
+  // Submit Form (Create / Update)
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // 1. Validation
+    if (!formData.headOfficeId) {
+      toastError('Validation Error', 'Parent Head Office selection is mandatory.');
+      return;
+    }
     if (!formData.name.trim()) {
-      error('Zone Name is required.');
+      toastError('Validation Error', 'Zone / Area Name is required.');
       return;
     }
     if (!formData.code.trim()) {
-      error('Zone Code is required.');
+      toastError('Validation Error', 'Zone Code is required.');
       return;
     }
-    if (!formData.headOfficeId) {
-      error('Parent Head Office is required.');
+    if (!formData.phone.trim()) {
+      toastError('Validation Error', 'Official Phone Number is required.');
+      return;
+    }
+    if (!formData.email.trim()) {
+      toastError('Validation Error', 'Official Email Address is required.');
+      return;
+    }
+    if (!formData.addressLine1.trim()) {
+      toastError('Validation Error', 'Address Line 1 is required.');
       return;
     }
 
-    setIsSubmitting(true);
+    // Login credentials validation
+    if (!editingZone && (!formData.loginPassword || formData.loginPassword.length < 8)) {
+      toastError('Validation Error', 'Password must be at least 8 characters long for initial account creation.');
+      return;
+    }
+    if (formData.loginPassword && formData.loginPassword !== formData.confirmPassword) {
+      toastError('Validation Error', 'Password and Confirm Password do not match.');
+      return;
+    }
+
     try {
-      const url = isEditing && editingId
-        ? `/api/admin/organization/zones/${editingId}`
+      setSubmitting(true);
+
+      const payload: any = {
+        headOfficeId: formData.headOfficeId,
+        regionId: formData.regionId && formData.regionId !== 'NONE' ? formData.regionId : null,
+        name: formData.name.trim(),
+        code: formData.code.trim().toUpperCase(),
+        registrationNo: formData.registrationNo.trim() || null,
+        shortName: formData.registrationNo.trim() || null,
+        addressLine1: formData.addressLine1.trim(),
+        addressLine2: formData.addressLine2.trim() || null,
+        postalCode: formData.postalCode.trim() || null,
+        phone: formData.phone.trim(),
+        altPhone: formData.altPhone.trim() || null,
+        email: formData.email.trim(),
+        website: formData.website.trim() || null,
+        logoUrl: formData.logoUrl || null,
+        signatureUrl: formData.signatureUrl || null,
+        stampUrl: formData.stampUrl || null,
+        loginUsername: formData.loginUsername.trim().toLowerCase(),
+        loginStatus: formData.loginStatus,
+        status: formData.status,
+      };
+
+      if (formData.loginPassword && formData.loginPassword.trim()) {
+        payload.loginPassword = formData.loginPassword.trim();
+      }
+
+      if (formData.locationMode === 'REFERENCE') {
+        payload.countryId = formData.countryId || null;
+        payload.stateId = formData.stateId || null;
+        payload.cityId = formData.cityId || null;
+      } else {
+        payload.countryId = null;
+        payload.stateId = null;
+        payload.cityId = null;
+        payload.country = formData.manualCountry.trim() || 'Pakistan';
+        payload.state = formData.manualState.trim() || null;
+        payload.city = formData.manualCity.trim() || null;
+      }
+
+      const url = editingZone
+        ? ('/api/admin/organization/zones/' + editingZone.id)
         : '/api/admin/organization/zones';
-      const method = isEditing ? 'PUT' : 'POST';
+      const method = editingZone ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      if (data.success) {
-        success(isEditing ? 'Zone updated successfully.' : 'Zone created successfully.');
-        setIsFormOpen(false);
-        resetForm();
-        fetchZones();
-      } else {
-        error(data.error?.message || 'Operation failed.');
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to save Zone.');
       }
-    } catch {
-      error('Network error during submission.');
+
+      toastSuccess(
+        editingZone ? 'Zone Updated' : 'Zone Created',
+        'Zone "' + formData.name + '" has been successfully saved.'
+      );
+
+      setIsFormModalOpen(false);
+      fetchZones();
+    } catch (err: any) {
+      toastError('Save Error', err.message || 'Could not save Zone.');
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   };
 
-  // Open Status Toggle Modal
-  const handleOpenStatusModal = (zone: ZoneItem, newStatus: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED') => {
-    setTargetZone(zone);
-    setTargetNewStatus(newStatus);
-    setStatusReason('');
-    setIsStatusModalOpen(true);
-  };
+  // Status Toggle (Activate / Inactivate)
+  const handleToggleStatus = async (zone: ZoneItem) => {
+    const nextStatus = zone.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const actionLabel = nextStatus === 'ACTIVE' ? 'activate' : 'deactivate';
 
-  // Confirm Status Toggle
-  const handleConfirmStatusChange = async () => {
-    if (!targetZone) return;
+    if (!confirm('Are you sure you want to ' + actionLabel + ' Zone "' + zone.name + '"?')) return;
 
-    setIsStatusSubmitting(true);
     try {
-      const res = await fetch(`/api/admin/organization/zones/${targetZone.id}/status`, {
+      const res = await fetch('/api/admin/organization/zones/' + zone.id + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: targetNewStatus,
-          reason: statusReason.trim() || undefined,
-        }),
+        body: JSON.stringify({ status: nextStatus, reason: 'User requested ' + actionLabel }),
       });
 
       const data = await res.json();
-      if (data.success) {
-        success(`Zone status updated to ${targetNewStatus}.`);
-        setIsStatusModalOpen(false);
-        setTargetZone(null);
-        fetchZones();
-      } else {
-        error(data.error?.message || 'Failed to update status.');
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || ('Failed to ' + actionLabel + ' Zone.'));
       }
+
+      toastSuccess('Status Updated', 'Zone status set to ' + nextStatus + '.');
+      fetchZones();
+    } catch (err: any) {
+      toastError('Status Update Failed', err.message || 'Could not update status.');
+    }
+  };
+
+  // View Audit Logs
+  const handleViewAudit = async (zone: ZoneItem) => {
+    setAuditZoneName(zone.name);
+    try {
+      const res = await fetch('/api/admin/organization/zones/' + zone.id + '/audit');
+      const data = await res.json();
+      if (data.success) {
+        setAuditLogs(data.data || []);
+      } else {
+        setAuditLogs([]);
+      }
+      setIsAuditModalOpen(true);
     } catch {
-      error('Network error updating status.');
-    } finally {
-      setIsStatusSubmitting(false);
+      toastError('Audit Log Error', 'Could not load audit history.');
     }
   };
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Header & Breadcrumb Navigation */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
-            <Link href="/admin/settings" className="hover:text-brand-600 transition-colors flex items-center gap-1">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Administration Configuration
+    <div className="space-y-6">
+      {/* Header & Breadcrumb */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin/settings"
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+              title="Back to Settings"
+            >
+              <ArrowLeft className="w-5 h-5" />
             </Link>
-            <ChevronRight className="h-3 w-3 text-slate-400" />
-            <span className="text-slate-900 font-bold">Zone / Area Management</span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2.5">
-            <div className="p-2 bg-purple-50 text-purple-700 rounded-xl border border-purple-200/60 shadow-sm">
-              <Layers className="h-6 w-6" />
-            </div>
-            Zone / Area Management
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Cluster-level academic and operational zones across regions or directly attached to head offices.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchZones}
-            disabled={isLoading}
-            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 border-slate-200"
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-
-          <Button
-            size="sm"
-            onClick={handleOpenCreate}
-            className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white shadow-sm"
-          >
-            <Plus className="h-4 w-4" />
-            Add Zone
-          </Button>
-        </div>
-      </div>
-
-      {/* KPI Metric Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Zones</span>
-            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-              <Layers className="h-4 w-4" />
+            <div>
+              <div className="flex items-center gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-0.5">
+                <Layers className="w-4 h-4" />
+                <span>Organization Tier 3</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                Zone / Area Management
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                Manage zonal clusters, geographic educational districts, and sub-regional administrative units.
+              </p>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.total}</span>
-            <span className="text-xs text-slate-500">all clusters</span>
-          </div>
-          <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-              {stats.active} Active
-            </span>
-            <span>•</span>
-            <span className="inline-flex items-center gap-1 text-amber-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-              {stats.inactive} Inactive
-            </span>
-          </div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Clusters</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-              <CheckCircle2 className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-emerald-700">{stats.active}</span>
-            <span className="text-xs text-slate-500">operational</span>
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            {stats.archived > 0 ? `${stats.archived} archived clusters` : 'Full operational integrity'}
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Parent Head Offices</span>
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-              <Building2 className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-indigo-700">{stats.headOfficesCount}</span>
-            <span className="text-xs text-slate-500">governing HOs</span>
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Across {stats.availableHeadOffices.length} registered head offices
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Hierarchy Attachment</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <Compass className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-blue-700">{stats.regionsCount}</span>
-            <span className="text-xs text-slate-500">Regions linked</span>
-          </div>
-          <p className="mt-2 text-xs text-slate-500">
-            <span className="font-medium text-slate-700">{stats.directHoCount}</span> direct HO attachments
-          </p>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* Search Input */}
-          <div className="relative lg:col-span-2">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search zones by name, code, city, manager, district..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-8 py-2 text-sm bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Status Filter */}
-          <div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full py-2 px-3 text-sm bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-slate-700"
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleOpenAddModal}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2 shadow-sm shadow-indigo-200 dark:shadow-none"
             >
-              <option value="ALL">All Statuses</option>
-              <option value="ACTIVE">Active Only</option>
-              <option value="INACTIVE">Inactive Only</option>
-              <option value="ARCHIVED">Archived Only</option>
-            </select>
-          </div>
-
-          {/* Head Office Filter */}
-          <div>
-            <select
-              value={headOfficeFilter}
-              onChange={(e) => setHeadOfficeFilter(e.target.value)}
-              className="w-full py-2 px-3 text-sm bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-slate-700"
-            >
-              <option value="ALL">All Head Offices</option>
-              {stats.availableHeadOffices.map((ho) => (
-                <option key={ho.id} value={ho.id}>
-                  {ho.name} ({ho.code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Region Filter */}
-          <div>
-            <select
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-              className="w-full py-2 px-3 text-sm bg-slate-50/50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 text-slate-700"
-            >
-              <option value="ALL">All Regions / Attachments</option>
-              <option value="NONE">⚡ Direct HO (No Region)</option>
-              {stats.availableRegions.map((reg) => (
-                <option key={reg.id} value={reg.id}>
-                  {reg.name} ({reg.code})
-                </option>
-              ))}
-            </select>
+              <Plus className="w-4 h-4" />
+              <span>Add Zone</span>
+            </Button>
           </div>
         </div>
 
-        {/* City Filter & Quick Badges */}
-        {(stats.availableCities.length > 0 || search || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || regionFilter !== 'ALL' || cityFilter !== 'ALL') && (
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="font-semibold text-slate-600">Filter by City:</span>
-              <button
-                onClick={() => setCityFilter('ALL')}
-                className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
-                  cityFilter === 'ALL'
-                    ? 'bg-brand-50 text-brand-700 border border-brand-200'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                }`}
-              >
-                All Cities
-              </button>
-              {stats.availableCities.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setCityFilter(c)}
-                  className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
-                    cityFilter === c
-                      ? 'bg-brand-50 text-brand-700 border border-brand-200'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
+        {/* Aggregate KPI Strip */}
+        {stats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mt-6 pt-5 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">Total Zones</span>
+              <span className="text-lg font-bold text-slate-900 dark:text-white">{stats.total}</span>
             </div>
-
-            {(search || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || regionFilter !== 'ALL' || cityFilter !== 'ALL') && (
-              <button
-                onClick={() => {
-                  setSearch('');
-                  setStatusFilter('ALL');
-                  setHeadOfficeFilter('ALL');
-                  setRegionFilter('ALL');
-                  setCityFilter('ALL');
-                }}
-                className="text-brand-600 hover:text-brand-700 font-medium flex items-center gap-1"
-              >
-                <X className="h-3 w-3" />
-                Reset all filters
-              </button>
-            )}
+            <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-100/80 dark:border-emerald-900/30">
+              <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 block">Active Zones</span>
+              <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{stats.active}</span>
+            </div>
+            <div className="bg-amber-50/50 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-100/80 dark:border-amber-900/30">
+              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 block">Direct Head Office</span>
+              <span className="text-lg font-bold text-amber-700 dark:text-amber-300">{stats.directHoCount}</span>
+            </div>
+            <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-3 rounded-xl border border-indigo-100/80 dark:border-indigo-900/30">
+              <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 block">Parent Head Offices</span>
+              <span className="text-lg font-bold text-indigo-700 dark:text-indigo-300">{stats.headOfficesCount}</span>
+            </div>
+            <div className="bg-purple-50/50 dark:bg-purple-950/20 p-3 rounded-xl border border-purple-100/80 dark:border-purple-900/30">
+              <span className="text-[11px] font-medium text-purple-600 dark:text-purple-400 block">Parent Regions</span>
+              <span className="text-lg font-bold text-purple-700 dark:text-purple-300">{stats.regionsCount}</span>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block">Covered Cities</span>
+              <span className="text-lg font-bold text-slate-900 dark:text-white">{stats.citiesCount}</span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Main Data Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                <th className="py-3 px-4">Zone Identity & Code</th>
-                <th className="py-3 px-4">Hierarchy Attachment</th>
-                <th className="py-3 px-4">Location & Coverage</th>
-                <th className="py-3 px-4">Leadership & Contacts</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <RefreshCw className="h-6 w-6 animate-spin text-brand-600" />
-                      <p className="text-sm font-medium">Loading zones...</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-3">
-                      <div className="p-3 bg-slate-100 text-slate-400 rounded-full">
-                        <Layers className="h-8 w-8" />
-                      </div>
-                      <div>
-                        <p className="text-base font-semibold text-slate-700">No Zones Found</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {search || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || regionFilter !== 'ALL' || cityFilter !== 'ALL'
-                            ? 'No zones matched your filter criteria.'
-                            : 'Get started by creating your first academic cluster/zone.'}
-                        </p>
-                      </div>
-                      <Button size="sm" onClick={handleOpenCreate} className="bg-brand-600 hover:bg-brand-700 text-white">
-                        <Plus className="h-4 w-4 mr-1.5" />
-                        Add First Zone
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                items.map((zone) => {
-                  const isDirectHO = !zone.regionId;
-                  return (
-                    <tr key={zone.id} className="hover:bg-slate-50/60 transition-colors group">
-                      {/* Identity & Code */}
-                      <td className="py-3.5 px-4 align-top">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 bg-purple-50 text-purple-700 rounded-lg border border-purple-100 mt-0.5">
-                            <Layers className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 group-hover:text-brand-600 transition-colors">
-                                {zone.name}
-                              </span>
-                              {zone.shortName && (
-                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">
-                                  {zone.shortName}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200/70 rounded-md text-xs font-mono font-bold">
-                                {zone.code}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
+      {/* Filter & Search Bar */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search zones by name, code, city..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
-                      {/* Hierarchy Attachment */}
-                      <td className="py-3.5 px-4 align-top">
-                        <div className="space-y-1.5">
-                          {/* Parent Head Office */}
-                          <div className="flex items-center gap-1.5 text-xs text-slate-700">
-                            <Building2 className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                            <span className="font-semibold">{zone.headOffice?.name || 'Head Office'}</span>
-                          </div>
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {/* Head Office Filter */}
+          <select
+            value={headOfficeFilter}
+            onChange={(e) => {
+              setHeadOfficeFilter(e.target.value);
+              setRegionFilter('ALL');
+            }}
+            className="text-xs font-medium py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          >
+            <option value="ALL">All Head Offices</option>
+            {stats?.availableHeadOffices?.map((ho) => (
+              <option key={ho.id} value={ho.id}>
+                {ho.name} ({ho.code})
+              </option>
+            ))}
+          </select>
 
-                          {/* Parent Region / Direct Attachment */}
-                          {isDirectHO ? (
-                            <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/80 rounded text-[11px] font-medium">
-                              <Sparkles className="h-3 w-3" />
-                              Direct Head Office Attachment
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                              <Compass className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                              <span>{zone.region?.name || 'Region'}</span>
-                            </div>
-                          )}
-                        </div>
-                      </td>
+          {/* Region Filter */}
+          <select
+            value={regionFilter}
+            onChange={(e) => setRegionFilter(e.target.value)}
+            className="text-xs font-medium py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          >
+            <option value="ALL">All Regions</option>
+            <option value="NONE">Direct Head Office (No Region)</option>
+            {stats?.availableRegions
+              ?.filter((r) => headOfficeFilter === 'ALL' || r.headOfficeId === headOfficeFilter)
+              .map((reg) => (
+                <option key={reg.id} value={reg.id}>
+                  {reg.name} ({reg.code})
+                </option>
+              ))}
+          </select>
 
-                      {/* Location & Coverage */}
-                      <td className="py-3.5 px-4 align-top">
-                        <div className="space-y-1 text-xs">
-                          <div className="flex items-center gap-1.5 text-slate-800 font-medium">
-                            <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                            <span>
-                              {zone.city || 'Karachi'}{zone.state ? `, ${zone.state}` : ''}
-                            </span>
-                          </div>
-                          {zone.coveredDistricts && (
-                            <p className="text-[11px] text-slate-500 line-clamp-1">
-                              <span className="font-semibold text-slate-600">Coverage: </span>
-                              {zone.coveredDistricts}
-                            </p>
-                          )}
-                        </div>
-                      </td>
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="text-xs font-medium py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
 
-                      {/* Leadership & Contacts */}
-                      <td className="py-3.5 px-4 align-top">
-                        <div className="space-y-1 text-xs">
-                          {zone.managerName ? (
-                            <div className="flex items-center gap-1.5 text-slate-800 font-medium">
-                              <User className="h-3.5 w-3.5 text-brand-600 shrink-0" />
-                              <span className="truncate max-w-[170px]">{zone.managerName}</span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 italic">No Manager Assigned</span>
-                          )}
-
-                          <div className="flex items-center gap-3 text-slate-500 text-[11px]">
-                            {zone.phone && (
-                              <span className="flex items-center gap-1">
-                                <Phone className="h-3 w-3 text-slate-400" />
-                                {zone.phone}
-                              </span>
-                            )}
-                            {zone.email && (
-                              <span className="flex items-center gap-1">
-                                <Mail className="h-3 w-3 text-slate-400" />
-                                {zone.email}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4 align-top">
-                        {zone.status === 'ACTIVE' && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Active
-                          </span>
-                        )}
-                        {zone.status === 'INACTIVE' && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                            Inactive
-                          </span>
-                        )}
-                        {zone.status === 'ARCHIVED' && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                            <Archive className="h-3 w-3" />
-                            Archived
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-3.5 px-4 align-top text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => handleOpenDetail(zone)}
-                            title="View Full Details & Audit"
-                            className="p-1.5 text-slate-500 hover:text-brand-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenEdit(zone)}
-                            title="Edit Zone"
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-
-                          <button
-                            onClick={() =>
-                              handleOpenStatusModal(
-                                zone,
-                                zone.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
-                              )
-                            }
-                            title={zone.status === 'ACTIVE' ? 'Deactivate Zone' : 'Activate Zone'}
-                            className={`p-1.5 rounded-lg transition-colors ${
-                              zone.status === 'ACTIVE'
-                                ? 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'
-                                : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
-                            }`}
-                          >
-                            <Power className="h-4 w-4" />
-                          </button>
-
-                          {zone.status !== 'ARCHIVED' && (
-                            <button
-                              onClick={() => handleOpenStatusModal(zone, 'ARCHIVED')}
-                              title="Archive Zone"
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            >
-                              <Archive className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchZones}
+            className="text-slate-600 dark:text-slate-300 h-9 px-3"
+            title="Refresh List"
+          >
+            <RefreshCw className={'w-3.5 h-3.5 ' + (loading ? 'animate-spin' : '')} />
+          </Button>
         </div>
       </div>
 
-      {/* CREATE / EDIT ZONE MODAL */}
+      {/* Main Table View */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center">
+            <RefreshCw className="w-8 h-8 animate-spin text-indigo-600 dark:text-indigo-400 mx-auto mb-3" />
+            <p className="text-sm text-slate-500 dark:text-slate-400">Loading Zones Registry...</p>
+          </div>
+        ) : zones.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mx-auto mb-3 border border-indigo-100 dark:border-indigo-900/50">
+              <Layers className="w-7 h-7" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1">No Zones Found</h3>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-4">
+              {searchQuery || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || regionFilter !== 'ALL'
+                ? 'No zones matched your filter criteria.'
+                : 'Get started by creating your first organizational Zone or Area.'}
+            </p>
+            <Button onClick={handleOpenAddModal} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs">
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              Create Zone
+            </Button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs sm:text-sm border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                  <th className="py-3.5 px-4">Zone / Area Name</th>
+                  <th className="py-3.5 px-4">Parent Hierarchy</th>
+                  <th className="py-3.5 px-4">Location</th>
+                  <th className="py-3.5 px-4">Official Contact</th>
+                  <th className="py-3.5 px-4 text-center">Login Access</th>
+                  <th className="py-3.5 px-4 text-center">Status</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {zones.map((zone) => (
+                  <tr
+                    key={zone.id}
+                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group"
+                  >
+                    {/* Name & Code */}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs flex-shrink-0">
+                          {zone.logoUrl ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={zone.logoUrl} alt={zone.name} className="w-7 h-7 object-contain rounded" />
+                          ) : (
+                            <Layers className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <span>{zone.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="font-mono text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-100 dark:border-indigo-900/50">
+                              {zone.code}
+                            </span>
+                            {zone.registrationNo && (
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Ref: {zone.registrationNo}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Parent Hierarchy */}
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                          <Building2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate max-w-[160px]" title={zone.headOffice?.name || 'Head Office'}>
+                            {zone.headOffice?.name || 'Head Office'}
+                          </span>
+                        </div>
+                        <div>
+                          {zone.region ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/40">
+                              <Compass className="w-3 h-3" />
+                              <span className="truncate max-w-[140px]">{zone.region.name}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              Direct Head Office
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Location */}
+                    <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300 text-xs">
+                      <div className="flex items-start gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-slate-900 dark:text-slate-200">
+                            {zone.city || 'N/A'}{zone.state ? (', ' + zone.state) : ''}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
+                            {zone.addressLine1 || zone.country || 'Pakistan'}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Official Contact */}
+                    <td className="py-3.5 px-4 text-xs">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-medium">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          <span>{zone.phone || 'N/A'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[11px]">
+                          <Mail className="w-3 h-3 text-slate-400" />
+                          <span className="truncate max-w-[150px]">{zone.email || 'N/A'}</span>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Login Access */}
+                    <td className="py-3.5 px-4 text-center">
+                      <div className="inline-flex flex-col items-center">
+                        <span className="font-mono text-[11px] font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                          <Key className="w-3 h-3 text-indigo-500" />
+                          {zone.loginUsername || zone.code.toLowerCase().replace(/-/g, '_')}
+                        </span>
+                        <span
+                          className={'text-[9px] font-semibold uppercase px-1.5 py-0.2 rounded mt-0.5 ' + (
+                            zone.loginStatus === 'ACTIVE'
+                              ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'text-amber-700 bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300'
+                          )}
+                        >
+                          {zone.loginStatus || 'ACTIVE'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Status Badge */}
+                    <td className="py-3.5 px-4 text-center">
+                      <span
+                        className={'inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ' + (
+                          zone.status === 'ACTIVE'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50'
+                            : zone.status === 'INACTIVE'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50'
+                        )}
+                      >
+                        <span
+                          className={'w-1.5 h-1.5 rounded-full ' + (
+                            zone.status === 'ACTIVE'
+                              ? 'bg-emerald-500'
+                              : zone.status === 'INACTIVE'
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
+                          )}
+                        />
+                        {zone.status}
+                      </span>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDetailZone(zone)}
+                          className="h-8 w-8 p-0 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                          title="View Details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenEditModal(zone)}
+                          className="h-8 w-8 p-0 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                          title="Edit Zone"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleStatus(zone)}
+                          className={'h-8 w-8 p-0 ' + (
+                            zone.status === 'ACTIVE'
+                              ? 'text-amber-500 hover:text-amber-700'
+                              : 'text-emerald-500 hover:text-emerald-700'
+                          )}
+                          title={zone.status === 'ACTIVE' ? 'Deactivate Zone' : 'Activate Zone'}
+                        >
+                          <Power className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleViewAudit(zone)}
+                          className="h-8 w-8 p-0 text-slate-400 hover:text-slate-600"
+                          title="Audit Trail"
+                        >
+                          <History className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* CREATE / EDIT MODAL FORM (5 Approved Sections) */}
       <Modal
-        isOpen={isFormOpen}
-        onClose={() => {
-          if (!isSubmitting) setIsFormOpen(false);
-        }}
-        title={isEditing ? `Edit Zone: ${formData.name || 'Zone'}` : 'Add New Zone / Area'}
+        isOpen={isFormModalOpen}
+        onClose={() => !submitting && setIsFormModalOpen(false)}
+        title={editingZone ? ('Edit Zone: ' + editingZone.name) : 'Add New Zone / Area'}
         maxWidth="2xl"
       >
-        <form onSubmit={handleFormSubmit} className="space-y-6 pt-2">
-          {/* SECTION 1: Organizational Hierarchy & Identity */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <Layers className="h-4 w-4 text-purple-600" />
-              <span>1. Organizational Hierarchy & Identity</span>
+        <form onSubmit={handleFormSubmit} className="space-y-6 max-h-[75vh] overflow-y-auto pr-1.5 -mr-1.5">
+          {/* SECTION 1: PARENT & BASIC INFORMATION */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-700">
+              <Building2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                1. Parent & Basic Information
+              </h3>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Parent Head Office (Required) */}
+              {/* Parent Head Office (MANDATORY) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Parent Head Office <span className="text-red-500">*</span>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Parent Head Office <span className="text-rose-500">*</span>
                 </label>
                 <select
-                  required
                   value={formData.headOfficeId}
                   onChange={(e) => {
-                    const nextHoId = e.target.value;
                     setFormData((prev) => ({
                       ...prev,
-                      headOfficeId: nextHoId,
-                      // reset region if it doesn't belong to newly selected HO
-                      regionId: '',
+                      headOfficeId: e.target.value,
+                      regionId: '', // Reset region on head office change
                     }));
                   }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  required
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 >
-                  <option value="">-- Select Parent Head Office --</option>
-                  {stats.availableHeadOffices.map((ho) => (
-                    <option key={ho.id} value={ho.id}>
-                      {ho.name} ({ho.code})
-                    </option>
-                  ))}
+                  <option value="">Select Parent Head Office...</option>
+                  {stats?.availableHeadOffices
+                    ?.filter((ho) => ho.status === 'ACTIVE' || ho.id === formData.headOfficeId)
+                    .map((ho) => (
+                      <option key={ho.id} value={ho.id}>
+                        {ho.name} ({ho.code})
+                      </option>
+                    ))}
                 </select>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  The primary governing Head Office for this Zone.
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                  A Zone must always belong to a Parent Head Office.
                 </p>
               </div>
 
-              {/* Parent Region (Optional) */}
+              {/* Parent Region (OPTIONAL) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Parent Region <span className="text-slate-400 font-normal">(Optional Layer)</span>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Parent Region <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <select
                   value={formData.regionId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, regionId: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  disabled={!formData.headOfficeId}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:opacity-60"
                 >
-                  <option value="">⚡ None (Direct Head Office Attachment)</option>
+                  <option value="">None — Direct Head Office Attachment</option>
                   {formAvailableRegions.map((reg) => (
                     <option key={reg.id} value={reg.id}>
                       {reg.name} ({reg.code})
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Leave as &apos;None&apos; if this Zone attaches directly to the Head Office without a Region.
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                  Leave empty if Zone reports directly to Head Office.
                 </p>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Zone Name */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Zone / Area Name <span className="text-red-500">*</span>
+              {/* Zone / Area Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Zone / Area Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="e.g. Karachi Central Academic Zone"
                   value={formData.name}
                   onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  required
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
               </div>
 
-              {/* Short Name */}
+              {/* Zone Code with Lock/Unlock Override */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Short Name / Acronym <span className="text-slate-400 font-normal">(Optional)</span>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Zone Code <span className="text-rose-500">*</span>
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="e.g. ZN-KHI-001"
+                    value={formData.code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                    disabled={!formData.codeManualOverride && Boolean(editingZone)}
+                    required
+                    className="w-full text-xs font-mono font-semibold uppercase py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 disabled:opacity-60"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setFormData((prev) => ({ ...prev, codeManualOverride: !prev.codeManualOverride }))
+                    }
+                    className="h-8 px-2.5 text-slate-600 dark:text-slate-300"
+                    title={formData.codeManualOverride ? 'Lock Code Override' : 'Unlock Code Manual Override'}
+                  >
+                    {formData.codeManualOverride ? <Unlock className="w-3.5 h-3.5 text-amber-500" /> : <Lock className="w-3.5 h-3.5" />}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Registration / Ref No. */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Registration / Reference No. <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. KC-ZONE"
-                  value={formData.shortName}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, shortName: e.target.value.toUpperCase() }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg uppercase focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  placeholder="e.g. ZN-REF-7788"
+                  value={formData.registrationNo}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, registrationNo: e.target.value }))}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
               </div>
-            </div>
-
-            {/* Zone Code */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">
-                  Zone Code <span className="text-red-500">*</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <label className="text-[11px] text-slate-500 flex items-center gap-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={manualCodeOverride}
-                      onChange={(e) => setManualCodeOverride(e.target.checked)}
-                      className="rounded text-brand-600 focus:ring-brand-500 h-3.5 w-3.5"
-                    />
-                    Manual Override
-                  </label>
-                  {!manualCodeOverride && (
-                    <button
-                      type="button"
-                      onClick={() => handleAutoGenerateCode(formData.city)}
-                      className="text-[11px] text-brand-600 hover:text-brand-700 font-medium flex items-center gap-0.5"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      Re-generate
-                    </button>
-                  )}
-                </div>
-              </div>
-              <input
-                type="text"
-                required
-                disabled={!manualCodeOverride}
-                placeholder="e.g. ZN-KHI-001"
-                value={formData.code}
-                onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                className="w-full py-2 px-3 text-sm font-mono font-semibold uppercase bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-600"
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Unique identifier across the organization (e.g. ZN-KHI-001, ZN-LHR-002).
-              </p>
             </div>
           </div>
 
-          {/* SECTION 2: Geographical Location & Reference Masters */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <MapPin className="h-4 w-4 text-emerald-600" />
-              <span>2. Geographical Location & Reference Masters</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Country */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Country</label>
-                <select
-                  value={formData.countryId}
-                  onChange={(e) => {
-                    const countryId = e.target.value;
-                    const c = countries.find((item) => item.id === countryId);
-                    setFormData((prev) => ({
-                      ...prev,
-                      countryId,
-                      country: c ? c.name : prev.country,
-                      stateId: '',
-                      cityId: '',
-                    }));
-                  }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                >
-                  <option value="">-- Select Country --</option>
-                  {countries.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.isoCode})
-                    </option>
-                  ))}
-                </select>
+          {/* SECTION 2: LOCATION & ADDRESS */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                  2. Location & Address
+                </h3>
               </div>
 
-              {/* State / Province */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">State / Province</label>
-                <select
-                  value={formData.stateId}
-                  disabled={!formData.countryId || states.length === 0}
-                  onChange={(e) => {
-                    const stateId = e.target.value;
-                    const s = states.find((item) => item.id === stateId);
-                    setFormData((prev) => ({
-                      ...prev,
-                      stateId,
-                      state: s ? s.name : prev.state,
-                      cityId: '',
-                    }));
-                  }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+              {/* Mode Toggle */}
+              <div className="flex items-center bg-slate-200/70 dark:bg-slate-700 p-0.5 rounded-lg text-[10px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, locationMode: 'REFERENCE' }))}
+                  className={'px-2.5 py-1 rounded-md transition-colors ' + (
+                    formData.locationMode === 'REFERENCE'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  )}
                 >
-                  <option value="">-- Select State/Province --</option>
-                  {states.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* City */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
-                <select
-                  value={formData.cityId}
-                  disabled={!formData.stateId || cities.length === 0}
-                  onChange={(e) => {
-                    const cityId = e.target.value;
-                    const c = cities.find((item) => item.id === cityId);
-                    setFormData((prev) => ({
-                      ...prev,
-                      cityId,
-                      city: c ? c.name : prev.city,
-                    }));
-                    if (c?.code && !manualCodeOverride && !isEditing) {
-                      handleAutoGenerateCode(c.code);
-                    }
-                  }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                  Reference Master
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, locationMode: 'MANUAL' }))}
+                  className={'px-2.5 py-1 rounded-md transition-colors ' + (
+                    formData.locationMode === 'MANUAL'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                  )}
                 >
-                  <option value="">-- Select City --</option>
-                  {cities.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.code})
-                    </option>
-                  ))}
-                </select>
+                  Manual / Free Text
+                </button>
               </div>
             </div>
 
-            {/* Address Line 1 & Line 2 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Address Line 1</label>
+            {formData.locationMode === 'REFERENCE' ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Country Dropdown */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Country <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.countryId}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="">Select Country...</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.isoCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* State Dropdown */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    State / Province
+                  </label>
+                  <select
+                    value={formData.stateId}
+                    onChange={(e) => handleStateChange(e.target.value)}
+                    disabled={!formData.countryId || states.length === 0}
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-60 focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="">{states.length === 0 ? 'No States Available' : 'Select State / Province...'}</option>
+                    {states.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* City Dropdown */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    City
+                  </label>
+                  <select
+                    value={formData.cityId}
+                    onChange={(e) => handleCityChange(e.target.value)}
+                    disabled={!formData.stateId || cities.length === 0}
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-60 focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="">{cities.length === 0 ? 'No Cities Available' : 'Select City...'}</option>
+                    {cities.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Manual Country */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Country <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.manualCountry}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, manualCountry: e.target.value }))}
+                    placeholder="e.g. Pakistan"
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                {/* Manual State */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    State / Province
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.manualState}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, manualState: e.target.value }))}
+                    placeholder="e.g. Sindh"
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                {/* Manual City */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.manualCity}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, manualCity: e.target.value }))}
+                    placeholder="e.g. Karachi"
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Address Lines & Postal Code */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Address Line 1 <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
-                  placeholder="e.g. Zone 1 Administrative Office, Block 7"
+                  placeholder="e.g. Zone 1 Administrative Office, Block 7, Gulshan-e-Iqbal"
                   value={formData.addressLine1}
                   onChange={(e) => setFormData((prev) => ({ ...prev, addressLine1: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  required
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Address Line 2 / Building Wing</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Academic Operations Wing, 1st Floor"
-                  value={formData.addressLine2}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, addressLine2: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                />
-              </div>
-            </div>
-
-            {/* Postal Code & Custom City fallback */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Postal / ZIP Code</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Postal / ZIP Code
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. 75300"
                   value={formData.postalCode}
                   onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">City Name (Display / Override)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Karachi"
-                  value={formData.city}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 3: Official Communications & Contacts */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <Phone className="h-4 w-4 text-blue-600" />
-              <span>3. Official Communications & Contacts</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Official Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Official Phone</label>
-                <div className="flex">
-                  <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-600 font-mono text-xs font-bold">
-                    {activeCallingCode}
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="e.g. 21 34981122"
-                    value={formData.phone}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  />
-                </div>
-              </div>
-
-              {/* Alternate Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Alternate / Emergency Phone</label>
-                <div className="flex">
-                  <span className="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-600 font-mono text-xs font-bold">
-                    {activeCallingCode}
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="e.g. 21 34981123"
-                    value={formData.altPhone}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, altPhone: e.target.value }))}
-                    className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-r-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Official Email */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Official Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="email"
-                    placeholder="e.g. zone.central@greenwood.edu.pk"
-                    value={formData.email}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  />
-                </div>
-              </div>
-
-              {/* Website */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Official Website / Portal</label>
-                <div className="relative">
-                  <Globe className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="e.g. https://greenwood.edu.pk/zones/central"
-                    value={formData.website}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
-                    className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* SECTION 4: Leadership & HR Links */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <User className="h-4 w-4 text-indigo-600" />
-              <span>4. Leadership & HR Links</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Zone Manager (HR Lookup) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Zone Manager / Coordinator <span className="text-slate-400 font-normal">(HR Employee)</span>
+              <div className="md:col-span-3">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Address Line 2 <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
-                <select
-                  value={formData.managerEmployeeId}
-                  onChange={(e) => {
-                    const empId = e.target.value;
-                    const emp = employees.find((item) => item.id === empId);
-                    setFormData((prev) => ({
-                      ...prev,
-                      managerEmployeeId: empId,
-                      managerName: emp ? `${emp.fullName}${emp.designation ? ` (${emp.designation})` : ''}` : prev.managerName,
-                    }));
-                  }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                >
-                  <option value="">-- Select Active Employee --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.fullName} ({emp.employeeNo}){emp.designation ? ` - ${emp.designation}` : ''}
-                    </option>
-                  ))}
-                </select>
                 <input
                   type="text"
-                  placeholder="Or enter title/name manually"
-                  value={formData.managerName}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, managerName: e.target.value }))}
-                  className="w-full mt-1.5 py-1.5 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
-                />
-              </div>
-
-              {/* Administrative Contact Person */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Administrative Contact Person <span className="text-slate-400 font-normal">(HR Employee)</span>
-                </label>
-                <select
-                  value={formData.adminContactEmployeeId}
-                  onChange={(e) => {
-                    const empId = e.target.value;
-                    const emp = employees.find((item) => item.id === empId);
-                    setFormData((prev) => ({
-                      ...prev,
-                      adminContactEmployeeId: empId,
-                      adminContact: emp ? `${emp.fullName}${emp.designation ? ` (${emp.designation})` : ''}` : prev.adminContact,
-                    }));
-                  }}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-                >
-                  <option value="">-- Select Active Employee --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.fullName} ({emp.employeeNo}){emp.designation ? ` - ${emp.designation}` : ''}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Or enter contact person title/name manually"
-                  value={formData.adminContact}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, adminContact: e.target.value }))}
-                  className="w-full mt-1.5 py-1.5 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  placeholder="e.g. Academic Operations Wing, 1st Floor"
+                  value={formData.addressLine2}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, addressLine2: e.target.value }))}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
             </div>
           </div>
 
-          {/* SECTION 5: Operational Scope & Coverage */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <Compass className="h-4 w-4 text-amber-600" />
-              <span>5. Operational Scope & Coverage</span>
+          {/* SECTION 3: CONTACT INFORMATION */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-700">
+              <Phone className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                3. Contact Information
+              </h3>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Coverage Areas / Districts (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Gulshan-e-Iqbal, Gulberg, Federal B Area, Liaquatabad"
-                value={formData.coveredDistricts}
-                onChange={(e) => setFormData((prev) => ({ ...prev, coveredDistricts: e.target.value }))}
-                className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Official Phone <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. +92 21 34981122"
+                  value={formData.phone}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                  required
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Alternate / Mobile Phone <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. +92 300 1234567"
+                  value={formData.altPhone}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, altPhone: e.target.value }))}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Official Email <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="e.g. zone.central@greenwood.edu.pk"
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                  required
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Official Website <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://greenwood.edu.pk/zones/central"
+                  value={formData.website}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 4: DOCUMENTS & BRANDING */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-700">
+              <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                4. Documents & Branding (Optional)
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Zone Logo */}
+              <FileUploadBox
+                label="Zone Logo"
+                assetType="logo"
+                currentUrl={formData.logoUrl}
+                icon={ImageIcon}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, logoUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, logoUrl: null }))}
               />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Optional free-text coverage description of urban sectors, districts, or territories managed.
-              </p>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Coverage & Operational Notes
-              </label>
-              <textarea
-                rows={2}
-                placeholder="Detailed summary of branches, academic programs, or operational scope coordinated under this zone..."
-                value={formData.coverageNotes}
-                onChange={(e) => setFormData((prev) => ({ ...prev, coverageNotes: e.target.value }))}
-                className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              {/* Authorized Signature */}
+              <FileUploadBox
+                label="Authorized Signature"
+                assetType="signature"
+                currentUrl={formData.signatureUrl}
+                icon={FileSignature}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, signatureUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, signatureUrl: null }))}
+              />
+
+              {/* Official Stamp / Seal */}
+              <FileUploadBox
+                label="Official Stamp / Seal"
+                assetType="stamp"
+                currentUrl={formData.stampUrl}
+                icon={Stamp}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, stampUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, stampUrl: null }))}
               />
             </div>
           </div>
 
-          {/* SECTION 6: Status & Internal Remarks */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700">
-              <FileText className="h-4 w-4 text-slate-600" />
-              <span>6. Operational Status & Remarks</span>
+          {/* SECTION 5: LOGIN ACCESS */}
+          <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                  5. Login Access Account
+                </h3>
+              </div>
+              <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                Authorized Zone Administrator Access
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Login ID / Username */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as any }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-semibold"
-                >
-                  <option value="ACTIVE">Active</option>
-                  <option value="INACTIVE">Inactive</option>
-                  <option value="ARCHIVED">Archived</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Internal Remarks / Administrative Notes
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Login ID / Username <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="Optional internal notes or audit reference..."
-                  value={formData.remarks}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, remarks: e.target.value }))}
-                  className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  placeholder="e.g. zn_khi_001"
+                  value={formData.loginUsername}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, loginUsername: e.target.value.toLowerCase() }))}
+                  required
+                  className="w-full text-xs font-mono py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Account Status */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Account Status <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={formData.loginStatus}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      loginStatus: e.target.value as 'ACTIVE' | 'INACTIVE',
+                    }))
+                  }
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="ACTIVE">Active (Can log into ERP)</option>
+                  <option value="INACTIVE">Inactive (Suspended)</option>
+                </select>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  {editingZone ? 'Reset Password' : 'Password'}{' '}
+                  {!editingZone && <span className="text-rose-500">*</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={editingZone ? '•••••••• (leave blank to keep unchanged)' : 'Minimum 8 characters'}
+                  value={formData.loginPassword}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, loginPassword: e.target.value }))}
+                  required={!editingZone}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Confirm Password{' '}
+                  {(!editingZone || Boolean(formData.loginPassword)) && <span className="text-rose-500">*</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder="Re-enter password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                  required={!editingZone || Boolean(formData.loginPassword)}
+                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* Form Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          {/* Modal Actions Footer */}
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsFormOpen(false)}
-              disabled={isSubmitting}
+              onClick={() => setIsFormModalOpen(false)}
+              disabled={submitting}
+              className="text-xs h-9 px-4"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting}
-              className="bg-brand-600 hover:bg-brand-700 text-white min-w-[120px]"
+              disabled={submitting}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-9 px-5 flex items-center gap-1.5 shadow-sm"
             >
-              {isSubmitting ? (
-                <div className="flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  Saving...
-                </div>
-              ) : isEditing ? (
-                'Save Changes'
-              ) : (
-                'Create Zone'
-              )}
+              {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              <span>{editingZone ? 'Update Zone' : 'Save Zone'}</span>
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* DETAIL SLIDE-OVER DRAWER */}
-      {isDetailOpen && selectedZone && (
-        <div className="fixed inset-0 z-50 overflow-hidden">
-          <div
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsDetailOpen(false)}
-          />
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-xl bg-white shadow-2xl flex flex-col">
-              {/* Drawer Header */}
-              <div className="p-6 bg-slate-900 text-white flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-purple-500/20 text-purple-300 rounded-xl border border-purple-400/30">
-                    <Layers className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold">{selectedZone.name}</h2>
-                      {selectedZone.status === 'ACTIVE' && (
-                        <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded text-[10px] font-bold">
-                          ACTIVE
-                        </span>
-                      )}
-                      {selectedZone.status === 'INACTIVE' && (
-                        <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded text-[10px] font-bold">
-                          INACTIVE
-                        </span>
-                      )}
-                      {selectedZone.status === 'ARCHIVED' && (
-                        <span className="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[10px] font-bold">
-                          ARCHIVED
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs font-mono text-purple-300 mt-0.5">
-                      Code: {selectedZone.code}
-                      {selectedZone.shortName ? ` | Short: ${selectedZone.shortName}` : ''}
-                    </p>
-                  </div>
+      {/* VIEW DETAILS DRAWER */}
+      {detailZone && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs flex justify-end">
+          <div className="w-full max-w-xl bg-white dark:bg-slate-900 h-full shadow-2xl p-6 overflow-y-auto space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-sm">
+                  {detailZone.logoUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={detailZone.logoUrl} alt={detailZone.name} className="w-8 h-8 object-contain rounded" />
+                  ) : (
+                    <Layers className="w-5 h-5" />
+                  )}
                 </div>
-
-                <button
-                  onClick={() => setIsDetailOpen(false)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">{detailZone.name}</h2>
+                  <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400 font-semibold">
+                    {detailZone.code}
+                  </span>
+                </div>
               </div>
+              <button
+                onClick={() => setDetailZone(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              {/* Tab Navigation */}
-              <div className="flex border-b border-slate-200 bg-slate-50 px-6">
-                <button
-                  onClick={() => setDetailTab('overview')}
-                  className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${
-                    detailTab === 'overview'
-                      ? 'border-brand-600 text-brand-600 bg-white'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  Overview & Hierarchy
-                </button>
-                <button
-                  onClick={() => setDetailTab('audit')}
-                  className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 ${
-                    detailTab === 'audit'
-                      ? 'border-brand-600 text-brand-600 bg-white'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  <History className="h-3.5 w-3.5" />
-                  Audit Trail & History
-                </button>
+            {/* Parent Hierarchy Card */}
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Parent Hierarchy Assignment
+              </h4>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Parent Head Office</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mt-0.5">
+                    <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                    {detailZone.headOffice?.name || 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Parent Region</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mt-0.5">
+                    <Compass className="w-3.5 h-3.5 text-purple-500" />
+                    {detailZone.region?.name || 'Direct Head Office Attachment'}
+                  </span>
+                </div>
               </div>
+            </div>
 
-              {/* Drawer Content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {detailTab === 'overview' ? (
-                  <>
-                    {/* Organization Hierarchy Chain Card */}
-                    <div className="bg-gradient-to-br from-slate-50 to-indigo-50/30 rounded-xl border border-slate-200/80 p-4 space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <ShieldCheck className="h-4 w-4 text-indigo-600" />
-                        Organizational Hierarchy Path
-                      </div>
+            {/* Location & Address */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Location & Address
+              </h4>
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{detailZone.addressLine1 || 'N/A'}</p>
+                {detailZone.addressLine2 && <p className="text-slate-600 dark:text-slate-300">{detailZone.addressLine2}</p>}
+                <p className="text-slate-600 dark:text-slate-300">
+                  {[detailZone.city, detailZone.state, detailZone.postalCode, detailZone.country].filter(Boolean).join(', ')}
+                </p>
+              </div>
+            </div>
 
-                      <div className="flex flex-col gap-2 text-xs">
-                        {/* Root: Organization */}
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <div className="h-6 w-6 rounded-full bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-[10px]">
-                            ROOT
-                          </div>
-                          <span className="font-semibold text-slate-800">Organization</span>
-                          <span className="text-slate-400 text-[10px]">(System Root)</span>
-                        </div>
-
-                        <div className="ml-3 pl-3 border-l-2 border-indigo-200 space-y-2">
-                          {/* Head Office */}
-                          <div className="flex items-center gap-2">
-                            <Building2 className="h-4 w-4 text-indigo-600" />
-                            <span className="font-semibold text-slate-900">
-                              {selectedZone.headOffice?.name || 'Primary Head Office'}
-                            </span>
-                            <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 text-[10px] font-mono rounded font-bold">
-                              {selectedZone.headOffice?.code || 'HO'}
-                            </span>
-                          </div>
-
-                          {/* Region (if applicable) or Direct Flag */}
-                          <div className="ml-3 pl-3 border-l-2 border-indigo-200 space-y-2">
-                            {selectedZone.region ? (
-                              <div className="flex items-center gap-2">
-                                <Compass className="h-4 w-4 text-blue-600" />
-                                <span className="font-semibold text-slate-800">
-                                  {selectedZone.region.name}
-                                </span>
-                                <span className="px-1.5 py-0.2 bg-blue-50 text-blue-700 text-[10px] font-mono rounded font-bold">
-                                  {selectedZone.region.code}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5 text-amber-700 font-medium text-[11px]">
-                                <Sparkles className="h-3.5 w-3.5" />
-                                Direct Head Office Attachment (No Regional Layer)
-                              </div>
-                            )}
-
-                            {/* Zone Node (Current) */}
-                            <div className="ml-3 pl-3 border-l-2 border-purple-300">
-                              <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Layers className="h-4 w-4 text-purple-700" />
-                                  <span className="font-bold text-purple-900">{selectedZone.name}</span>
-                                </div>
-                                <span className="font-mono text-xs font-bold text-purple-700">
-                                  {selectedZone.code}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Location & Address Card */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4 text-emerald-600" />
-                        Location & Contact Information
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-xs">
-                        <div>
-                          <span className="text-slate-400 block">Address Line 1</span>
-                          <span className="font-medium text-slate-800">{selectedZone.addressLine1 || '—'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Address Line 2</span>
-                          <span className="font-medium text-slate-800">{selectedZone.addressLine2 || '—'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">City, State</span>
-                          <span className="font-medium text-slate-800">
-                            {selectedZone.city || 'Karachi'}{selectedZone.state ? `, ${selectedZone.state}` : ''}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Country & Postal Code</span>
-                          <span className="font-medium text-slate-800">
-                            {selectedZone.country || 'Pakistan'} {selectedZone.postalCode ? `(${selectedZone.postalCode})` : ''}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Official Phone</span>
-                          <span className="font-medium text-slate-800">{selectedZone.phone || '—'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Alternate Phone</span>
-                          <span className="font-medium text-slate-800">{selectedZone.altPhone || '—'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Official Email</span>
-                          <span className="font-medium text-slate-800">{selectedZone.email || '—'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Website</span>
-                          {selectedZone.website ? (
-                            <a
-                              href={selectedZone.website}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-brand-600 hover:underline flex items-center gap-1 font-medium"
-                            >
-                              Visit Portal <ExternalLink className="h-3 w-3" />
-                            </a>
-                          ) : (
-                            <span className="font-medium text-slate-800">—</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Leadership & Personnel */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <User className="h-4 w-4 text-indigo-600" />
-                        Leadership & HR Personnel
-                      </div>
-
-                      <div className="space-y-3 text-xs">
-                        <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/70">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider block mb-0.5">
-                            Zone Manager / Coordinator
-                          </span>
-                          <p className="font-bold text-slate-900 text-sm">
-                            {selectedZone.managerName || 'No Manager Assigned'}
-                          </p>
-                          {selectedZone.manager && (
-                            <p className="text-slate-500 mt-0.5 text-[11px]">
-                              HR Employee #{selectedZone.manager.employeeNo} • {selectedZone.manager.designation?.name || 'Staff'}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/70">
-                          <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider block mb-0.5">
-                            Administrative Contact Person
-                          </span>
-                          <p className="font-bold text-slate-900 text-sm">
-                            {selectedZone.adminContact || 'No Contact Assigned'}
-                          </p>
-                          {selectedZone.adminContactPerson && (
-                            <p className="text-slate-500 mt-0.5 text-[11px]">
-                              HR Employee #{selectedZone.adminContactPerson.employeeNo} • {selectedZone.adminContactPerson.designation?.name || 'Staff'}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Coverage & Districts */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        <Compass className="h-4 w-4 text-amber-600" />
-                        Coverage Areas & Districts
-                      </div>
-
-                      <div className="space-y-2 text-xs">
-                        <div>
-                          <span className="text-slate-400 block">Coverage Areas / Districts:</span>
-                          <span className="font-medium text-slate-800">
-                            {selectedZone.coveredDistricts || 'None specified'}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-400 block">Operational Notes:</span>
-                          <p className="text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 mt-1">
-                            {selectedZone.coverageNotes || 'No operational notes provided.'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* System Timestamps & Metadata */}
-                    <div className="bg-slate-50 rounded-xl border border-slate-200/80 p-4 space-y-2 text-xs text-slate-500">
-                      <div className="flex justify-between">
-                        <span>Created At:</span>
-                        <span className="font-medium text-slate-700">
-                          {new Date(selectedZone.createdAt).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Last Updated:</span>
-                        <span className="font-medium text-slate-700">
-                          {new Date(selectedZone.updatedAt).toLocaleString()}
-                        </span>
-                      </div>
-                      {selectedZone.remarks && (
-                        <div className="pt-2 border-t border-slate-200">
-                          <span className="font-semibold text-slate-700">Internal Remarks: </span>
-                          <span>{selectedZone.remarks}</span>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  /* Audit Trail Tab */
-                  <div className="space-y-4">
-                    {isLoadingAudit ? (
-                      <div className="py-8 text-center text-slate-400">
-                        <RefreshCw className="h-6 w-6 animate-spin mx-auto text-brand-600 mb-2" />
-                        <p className="text-xs font-medium">Loading audit history...</p>
-                      </div>
-                    ) : auditLogs.length === 0 ? (
-                      <div className="py-8 text-center text-slate-400">
-                        <History className="h-8 w-8 mx-auto text-slate-300 mb-2" />
-                        <p className="text-sm font-semibold text-slate-600">No Audit Records</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Audit entries will be recorded on changes to this Zone.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="relative pl-6 border-l-2 border-slate-200 space-y-6">
-                        {auditLogs.map((log) => (
-                          <div key={log.id} className="relative group">
-                            <div className="absolute -left-[31px] top-1 h-4 w-4 rounded-full bg-brand-600 border-2 border-white shadow-sm" />
-                            <div className="bg-slate-50 rounded-xl border border-slate-200/80 p-3.5 space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="px-2 py-0.5 bg-brand-50 text-brand-700 font-bold text-[10px] rounded uppercase">
-                                  {log.action}
-                                </span>
-                                <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(log.timestamp).toLocaleString()}
-                                </span>
-                              </div>
-                              <p className="text-xs font-medium text-slate-800">
-                                {log.changeSummary || 'Zone modified'}
-                              </p>
-                              {log.userId && (
-                                <p className="text-[10px] text-slate-400 font-mono">
-                                  User: {log.userId}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+            {/* Official Contact */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Official Contact
+              </h4>
+              <div className="grid grid-cols-2 gap-3 text-xs bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Phone</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{detailZone.phone || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Email</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">{detailZone.email || 'N/A'}</span>
+                </div>
+                {detailZone.website && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Website</span>
+                    <a
+                      href={detailZone.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                    >
+                      {detailZone.website}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Drawer Footer Actions */}
-              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsDetailOpen(false)}
-                >
-                  Close
-                </Button>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      setIsDetailOpen(false);
-                      handleOpenEdit(selectedZone);
-                    }}
-                    className="bg-brand-600 hover:bg-brand-700 text-white"
-                  >
-                    <Edit2 className="h-3.5 w-3.5 mr-1.5" />
-                    Edit Zone
-                  </Button>
+            {/* Documents & Branding Thumbnails */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Documents & Branding Assets
+              </h4>
+              <div className="grid grid-cols-3 gap-3">
+                {/* Logo */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center bg-slate-50 dark:bg-slate-800/40">
+                  <span className="text-[10px] font-semibold text-slate-500 block mb-2">Zone Logo</span>
+                  {detailZone.logoUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={detailZone.logoUrl} alt="Logo" className="w-16 h-16 object-contain mx-auto rounded" />
+                  ) : (
+                    <div className="w-16 h-16 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center mx-auto text-slate-400">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Signature */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center bg-slate-50 dark:bg-slate-800/40">
+                  <span className="text-[10px] font-semibold text-slate-500 block mb-2">Authorized Sig</span>
+                  {detailZone.signatureUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={detailZone.signatureUrl} alt="Sig" className="w-16 h-16 object-contain mx-auto rounded" />
+                  ) : (
+                    <div className="w-16 h-16 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center mx-auto text-slate-400">
+                      <FileSignature className="w-6 h-6" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Stamp */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-center bg-slate-50 dark:bg-slate-800/40">
+                  <span className="text-[10px] font-semibold text-slate-500 block mb-2">Official Stamp</span>
+                  {detailZone.stampUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={detailZone.stampUrl} alt="Stamp" className="w-16 h-16 object-contain mx-auto rounded" />
+                  ) : (
+                    <div className="w-16 h-16 rounded bg-slate-200 dark:bg-slate-700 flex items-center justify-center mx-auto text-slate-400">
+                      <Stamp className="w-6 h-6" />
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
+
+            {/* Login Access Info */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Login Access Account
+              </h4>
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs flex items-center justify-between">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Assigned Username</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {detailZone.loginUsername || detailZone.code.toLowerCase().replace(/-/g, '_')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Account Status</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {detailZone.loginStatus || 'ACTIVE'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDetailZone(null)}>
+                Close
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const z = detailZone;
+                  setDetailZone(null);
+                  handleOpenEditModal(z);
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                Edit Zone
+              </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* STATUS TOGGLE / ARCHIVE CONFIRMATION MODAL */}
+      {/* AUDIT LOG MODAL */}
       <Modal
-        isOpen={isStatusModalOpen}
-        onClose={() => {
-          if (!isStatusSubmitting) setIsStatusModalOpen(false);
-        }}
-        title={
-          targetNewStatus === 'ARCHIVED'
-            ? 'Archive Zone / Area'
-            : targetNewStatus === 'ACTIVE'
-            ? 'Activate Zone'
-            : 'Deactivate Zone'
-        }
-        maxWidth="md"
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+        title={'Audit Trail: ' + auditZoneName}
+        maxWidth="lg"
       >
-        <div className="space-y-4 pt-2">
-          <div className="flex items-start gap-3">
-            <div
-              className={`p-2.5 rounded-xl shrink-0 ${
-                targetNewStatus === 'ARCHIVED'
-                  ? 'bg-red-50 text-red-600'
-                  : targetNewStatus === 'ACTIVE'
-                  ? 'bg-emerald-50 text-emerald-600'
-                  : 'bg-amber-50 text-amber-600'
-              }`}
-            >
-              {targetNewStatus === 'ARCHIVED' ? (
-                <Archive className="h-6 w-6" />
-              ) : targetNewStatus === 'ACTIVE' ? (
-                <Unlock className="h-6 w-6" />
-              ) : (
-                <Lock className="h-6 w-6" />
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">
-                Are you sure you want to change status to{' '}
-                <span className="uppercase font-bold">{targetNewStatus}</span> for:
-              </p>
-              <p className="text-sm font-bold text-slate-900 mt-1">
-                {targetZone?.name} ({targetZone?.code})
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                {targetNewStatus === 'ARCHIVED'
-                  ? 'Archived zones will no longer accept new branch attachments and will be hidden from default operational workflows.'
-                  : targetNewStatus === 'INACTIVE'
-                  ? 'Inactive zones will temporarily suspend operational cluster assignment.'
-                  : 'Active zones are fully enabled for branch attachment and academic management.'}
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Reason / Change Note <span className="text-slate-400 font-normal">(Recorded in Audit Trail)</span>
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Operational cluster restructuring, seasonal reassignment..."
-              value={statusReason}
-              onChange={(e) => setStatusReason(e.target.value)}
-              className="w-full py-2 px-3 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsStatusModalOpen(false)}
-              disabled={isStatusSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleConfirmStatusChange}
-              disabled={isStatusSubmitting}
-              className={`text-white min-w-[120px] ${
-                targetNewStatus === 'ARCHIVED'
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : targetNewStatus === 'ACTIVE'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'bg-amber-600 hover:bg-amber-700'
-              }`}
-            >
-              {isStatusSubmitting ? (
-                <div className="flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  Updating...
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          {auditLogs.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-6">No audit records found for this Zone.</p>
+          ) : (
+            auditLogs.map((log) => (
+              <div
+                key={log.id}
+                className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700 text-xs space-y-1"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-indigo-600 dark:text-indigo-400 text-[11px] uppercase tracking-wider">
+                    {log.action}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </span>
                 </div>
-              ) : targetNewStatus === 'ARCHIVED' ? (
-                'Archive Zone'
-              ) : targetNewStatus === 'ACTIVE' ? (
-                'Activate Zone'
-              ) : (
-                'Deactivate Zone'
-              )}
-            </Button>
-          </div>
+                <p className="text-slate-700 dark:text-slate-300">{log.changeSummary || 'Details updated.'}</p>
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>

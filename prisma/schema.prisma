@@ -44,6 +44,7 @@ model Tenant {
   headOffices               HeadOffice[]
   regions                   Region[]
   zones                     Zone[]
+  branches                  Branch[]
   academicSessions          AcademicSession[]
   classCategories           ClassCategory[]
   schoolClasses             SchoolClass[]
@@ -145,44 +146,50 @@ model SchoolProfile {
 }
 
 model HeadOffice {
-  id                     String         @id @default(uuid())
-  tenantId               String         @map("tenant_id")
-  name                   String
-  code                   String
-  shortName              String?        @map("short_name")
-  registrationNo         String?        @map("registration_no")
-  countryId              String?        @map("country_id")
-  stateId                String?        @map("state_id")
-  cityId                 String?        @map("city_id")
-  addressLine1           String         @map("address_line_1")
-  addressLine2           String?        @map("address_line_2")
-  city                   String
-  state                  String?
-  country                String         @default("Pakistan")
-  postalCode             String?        @map("postal_code")
-  phone                  String?
-  altPhone               String?        @map("alt_phone")
-  email                  String?
-  website                String?
-  directorEmployeeId     String?        @map("director_employee_id")
-  adminContactEmployeeId String?        @map("admin_contact_employee_id")
-  directorName           String?        @map("director_name")
-  adminContact           String?        @map("admin_contact")
-  timezone               String         @default("Asia/Karachi")
-  currency               String         @default("PKR")
-  status                 String         @default("ACTIVE") // ACTIVE, INACTIVE
-  remarks                String?
-  createdAt              DateTime       @default(now()) @map("created_at")
-  updatedAt              DateTime       @updatedAt @map("updated_at")
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  name                      String
+  code                      String
+  shortName                 String?        @map("short_name")
+  registrationNo            String?        @map("registration_no")
+  countryId                 String?        @map("country_id")
+  stateId                   String?        @map("state_id")
+  cityId                    String?        @map("city_id")
+  addressLine1              String         @map("address_line_1")
+  addressLine2              String?        @map("address_line_2")
+  city                      String
+  state                     String?
+  country                   String         @default("Pakistan")
+  postalCode                String?        @map("postal_code")
+  phone                     String?
+  altPhone                  String?        @map("alt_phone")
+  email                     String?
+  website                   String?
+  logoUrl                   String?        @map("logo_url")
+  signatureUrl              String?        @map("signature_url")
+  stampUrl                  String?        @map("stamp_url")
+  directorEmployeeId        String?        @map("director_employee_id")
+  adminContactEmployeeId    String?        @map("admin_contact_employee_id")
+  directorName              String?        @map("director_name")
+  directorDesignation       String?        @default("Director General") @map("director_designation")
+  adminContact              String?        @map("admin_contact")
+  adminContactDesignation   String?        @default("Secretary Administration") @map("admin_contact_designation")
+  timezone                  String         @default("Asia/Karachi")
+  currency                  String         @default("PKR")
+  status                    String         @default("ACTIVE") // ACTIVE, INACTIVE
+  remarks                   String?
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
 
-  tenant                 Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  countryRef             Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
-  stateRef               StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
-  cityRef                City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  director               Employee?      @relation("HeadOfficeDirector", fields: [directorEmployeeId], references: [id], onDelete: SetNull)
-  adminContactPerson     Employee?      @relation("HeadOfficeAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
-  regions                Region[]
-  zones                  Zone[]
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  countryRef                Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  stateRef                  StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  cityRef                   City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  director                  Employee?      @relation("HeadOfficeDirector", fields: [directorEmployeeId], references: [id], onDelete: SetNull)
+  adminContactPerson        Employee?      @relation("HeadOfficeAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+  regions                   Region[]
+  zones                     Zone[]
+  branches                  Branch[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -193,44 +200,50 @@ model HeadOffice {
 }
 
 model Region {
-  id                     String         @id @default(uuid())
-  tenantId               String         @map("tenant_id")
-  headOfficeId           String         @map("head_office_id")
-  name                   String
-  code                   String
-  shortName              String?        @map("short_name")
-  countryId              String?        @map("country_id")
-  stateId                String?        @map("state_id")
-  cityId                 String?        @map("city_id")
-  addressLine1           String?        @map("address_line_1")
-  addressLine2           String?        @map("address_line_2")
-  city                   String?
-  state                  String?
-  country                String?        @default("Pakistan")
-  postalCode             String?        @map("postal_code")
-  phone                  String?
-  altPhone               String?        @map("alt_phone")
-  email                  String?
-  website                String?
-  directorEmployeeId     String?        @map("director_employee_id")
-  adminContactEmployeeId String?        @map("admin_contact_employee_id")
-  directorName           String?        @map("director_name")
-  adminContact           String?        @map("admin_contact")
-  coverageNotes          String?        @map("coverage_notes")
-  coveredDistricts       String?        @map("covered_districts")
-  status                 String         @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
-  remarks                String?
-  createdAt              DateTime       @default(now()) @map("created_at")
-  updatedAt              DateTime       @updatedAt @map("updated_at")
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  headOfficeId              String         @map("head_office_id")
+  name                      String
+  code                      String
+  shortName                 String?        @map("short_name")
+  countryId                 String?        @map("country_id")
+  stateId                   String?        @map("state_id")
+  cityId                    String?        @map("city_id")
+  addressLine1              String?        @map("address_line_1")
+  addressLine2              String?        @map("address_line_2")
+  city                      String?
+  state                     String?
+  country                   String?        @default("Pakistan")
+  postalCode                String?        @map("postal_code")
+  phone                     String?
+  altPhone                  String?        @map("alt_phone")
+  email                     String?
+  website                   String?
+  logoUrl                   String?        @map("logo_url")
+  signatureUrl              String?        @map("signature_url")
+  stampUrl                  String?        @map("stamp_url")
+  directorEmployeeId        String?        @map("director_employee_id")
+  adminContactEmployeeId    String?        @map("admin_contact_employee_id")
+  directorName              String?        @map("director_name")
+  directorDesignation       String?        @default("Regional Director") @map("director_designation")
+  adminContact              String?        @map("admin_contact")
+  adminContactDesignation   String?        @default("Regional Coordinator") @map("admin_contact_designation")
+  coverageNotes             String?        @map("coverage_notes")
+  coveredDistricts          String?        @map("covered_districts")
+  status                    String         @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
+  remarks                   String?
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
 
-  tenant                 Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  headOffice             HeadOffice     @relation(fields: [headOfficeId], references: [id], onDelete: Restrict)
-  countryRef             Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
-  stateRef               StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
-  cityRef                City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  director               Employee?      @relation("RegionDirector", fields: [directorEmployeeId], references: [id], onDelete: SetNull)
-  adminContactPerson     Employee?      @relation("RegionAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
-  zones                  Zone[]
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  headOffice                HeadOffice     @relation(fields: [headOfficeId], references: [id], onDelete: Restrict)
+  countryRef                Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  stateRef                  StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  cityRef                   City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  director                  Employee?      @relation("RegionDirector", fields: [directorEmployeeId], references: [id], onDelete: SetNull)
+  adminContactPerson        Employee?      @relation("RegionAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+  zones                     Zone[]
+  branches                  Branch[]
 
   @@unique([tenantId, code])
   @@index([tenantId, headOfficeId])
@@ -240,45 +253,51 @@ model Region {
 }
 
 model Zone {
-  id                     String         @id @default(uuid())
-  tenantId               String         @map("tenant_id")
-  headOfficeId           String         @map("head_office_id")
-  regionId               String?        @map("region_id")
-  name                   String
-  code                   String
-  shortName              String?        @map("short_name")
-  countryId              String?        @map("country_id")
-  stateId                String?        @map("state_id")
-  cityId                 String?        @map("city_id")
-  addressLine1           String?        @map("address_line_1")
-  addressLine2           String?        @map("address_line_2")
-  city                   String?
-  state                  String?
-  country                String?        @default("Pakistan")
-  postalCode             String?        @map("postal_code")
-  phone                  String?
-  altPhone               String?        @map("alt_phone")
-  email                  String?
-  website                String?
-  managerEmployeeId      String?        @map("manager_employee_id")
-  adminContactEmployeeId String?        @map("admin_contact_employee_id")
-  managerName            String?        @map("manager_name")
-  adminContact           String?        @map("admin_contact")
-  coverageNotes          String?        @map("coverage_notes")
-  coveredDistricts       String?        @map("covered_districts")
-  status                 String         @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
-  remarks                String?
-  createdAt              DateTime       @default(now()) @map("created_at")
-  updatedAt              DateTime       @updatedAt @map("updated_at")
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  headOfficeId              String         @map("head_office_id")
+  regionId                  String?        @map("region_id")
+  name                      String
+  code                      String
+  shortName                 String?        @map("short_name")
+  countryId                 String?        @map("country_id")
+  stateId                   String?        @map("state_id")
+  cityId                    String?        @map("city_id")
+  addressLine1              String?        @map("address_line_1")
+  addressLine2              String?        @map("address_line_2")
+  city                      String?
+  state                     String?
+  country                   String?        @default("Pakistan")
+  postalCode                String?        @map("postal_code")
+  phone                     String?
+  altPhone                  String?        @map("alt_phone")
+  email                     String?
+  website                   String?
+  logoUrl                   String?        @map("logo_url")
+  signatureUrl              String?        @map("signature_url")
+  stampUrl                  String?        @map("stamp_url")
+  managerEmployeeId         String?        @map("manager_employee_id")
+  adminContactEmployeeId    String?        @map("admin_contact_employee_id")
+  managerName               String?        @map("manager_name")
+  managerDesignation        String?        @default("Zone Manager") @map("manager_designation")
+  adminContact              String?        @map("admin_contact")
+  adminContactDesignation   String?        @default("Zonal Academic Lead") @map("admin_contact_designation")
+  coverageNotes             String?        @map("coverage_notes")
+  coveredDistricts          String?        @map("covered_districts")
+  status                    String         @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
+  remarks                   String?
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
 
-  tenant                 Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  headOffice             HeadOffice     @relation(fields: [headOfficeId], references: [id], onDelete: Restrict)
-  region                 Region?        @relation(fields: [regionId], references: [id], onDelete: SetNull)
-  countryRef             Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
-  stateRef               StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
-  cityRef                City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
-  manager                Employee?      @relation("ZoneManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
-  adminContactPerson     Employee?      @relation("ZoneAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  headOffice                HeadOffice     @relation(fields: [headOfficeId], references: [id], onDelete: Restrict)
+  region                    Region?        @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  countryRef                Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  stateRef                  StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  cityRef                   City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  manager                   Employee?      @relation("ZoneManager", fields: [managerEmployeeId], references: [id], onDelete: SetNull)
+  adminContactPerson        Employee?      @relation("ZoneAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+  branches                  Branch[]
 
   @@unique([tenantId, code])
   @@index([tenantId, headOfficeId])
@@ -286,6 +305,80 @@ model Zone {
   @@index([tenantId, status])
   @@index([tenantId, cityId])
   @@map("zones")
+}
+
+model Branch {
+  id                        String         @id @default(uuid())
+  tenantId                  String         @map("tenant_id")
+  headOfficeId              String         @map("head_office_id")
+  headOfficeId              String?        @map("head_office_id")
+  regionId                  String?        @map("region_id")
+  zoneId                    String?        @map("zone_id")
+  name                      String
+  code                      String
+  shortName                 String?        @map("short_name")
+  schoolType                String?        @default("Branch Campus") @map("school_type")
+  openingDate               DateTime?      @map("opening_date")
+  registrationNo            String?        @map("registration_no")
+  boardAffiliation          String?        @map("board_affiliation")
+  countryId                 String?        @map("country_id")
+  stateId                   String?        @map("state_id")
+  cityId                    String?        @map("city_id")
+  addressLine1              String         @map("address_line_1")
+  addressLine2              String?        @map("address_line_2")
+  city                      String
+  state                     String?
+  country                   String         @default("Pakistan")
+  postalCode                String?        @map("postal_code")
+  timezone                  String         @default("Asia/Karachi")
+  currency                  String         @default("PKR")
+  phone                     String?
+  altPhone                  String?        @map("alt_phone")
+  email                     String?
+  website                   String?
+  logoUrl                   String?        @map("logo_url")
+  signatureUrl              String?        @map("signature_url")
+  stampUrl                  String?        @map("stamp_url")
+  tagline                   String?
+  principalEmployeeId       String?        @map("principal_employee_id")
+  adminContactEmployeeId    String?        @map("admin_contact_employee_id")
+  principalName             String?        @map("principal_name")
+  principalDesignation      String?        @default("Principal") @map("principal_designation")
+  adminContact              String?        @map("admin_contact")
+  adminContactDesignation   String?        @default("Campus Administrator") @map("admin_contact_designation")
+  genderModel               String?        @default("CO_ED") @map("gender_model") // CO_ED, BOYS_ONLY, GIRLS_ONLY, SEPARATE_SECTIONS, SEPARATE_WINGS
+  shiftModel                String?        @default("MORNING") @map("shift_model") // MORNING, EVENING, MULTIPLE_SHIFTS
+  capacity                  Int?
+  academicPrograms          Json?          @map("academic_programs") // Array of string program codes/names
+  offeredClassCategoryIds   Json?          @map("offered_class_category_ids") // Array of ClassCategory IDs
+  offeredClassIds           Json?          @map("offered_class_ids") // Array of SchoolClass IDs
+  academicScopeNotes        String?        @map("academic_scope_notes")
+  feeCollectionAccount      String?        @map("fee_collection_account")
+  receiptPrefix             String?        @default("REC") @map("receipt_prefix")
+  voucherPrefix             String?        @default("VCH") @map("voucher_prefix")
+  status                    String         @default("ACTIVE") // ACTIVE, INACTIVE, ARCHIVED
+  remarks                   String?
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
+
+  tenant                    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  headOffice                HeadOffice     @relation(fields: [headOfficeId], references: [id], onDelete: Restrict)
+  headOffice                HeadOffice?    @relation(fields: [headOfficeId], references: [id], onDelete: SetNull)
+  region                    Region?        @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  zone                      Zone?          @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  countryRef                Country?       @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  stateRef                  StateProvince? @relation(fields: [stateId], references: [id], onDelete: SetNull)
+  cityRef                   City?          @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  principal                 Employee?      @relation("BranchPrincipal", fields: [principalEmployeeId], references: [id], onDelete: SetNull)
+  adminContactPerson        Employee?      @relation("BranchAdminContact", fields: [adminContactEmployeeId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, headOfficeId])
+  @@index([tenantId, regionId])
+  @@index([tenantId, zoneId])
+  @@index([tenantId, status])
+  @@index([tenantId, cityId])
+  @@map("branches")
 }
 
 // ---------------------------------------------------------
@@ -311,6 +404,7 @@ model Country {
   headOffices      HeadOffice[]
   regions          Region[]
   zones            Zone[]
+  branches         Branch[]
 
   @@map("global_countries")
 }
@@ -331,6 +425,7 @@ model StateProvince {
   headOffices  HeadOffice[]
   regions      Region[]
   zones        Zone[]
+  branches     Branch[]
 
   @@unique([countryId, code])
   @@index([countryId, isActive])
@@ -352,6 +447,7 @@ model City {
   headOffices       HeadOffice[]
   regions           Region[]
   zones             Zone[]
+  branches          Branch[]
 
   @@unique([stateId, name])
   @@index([stateId, isActive])
@@ -1951,6 +2047,8 @@ model Employee {
   adminContactRegions     Region[]                     @relation("RegionAdminContact")
   managedZones            Zone[]                       @relation("ZoneManager")
   adminContactZones       Zone[]                       @relation("ZoneAdminContact")
+  principalBranches       Branch[]                     @relation("BranchPrincipal")
+  adminContactBranches    Branch[]                     @relation("BranchAdminContact")
 
   @@unique([tenantId, employeeNo])
   @@index([tenantId, currentStatus])

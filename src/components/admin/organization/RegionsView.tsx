@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -11,7 +11,6 @@ import {
   Globe,
   Phone,
   Mail,
-  User,
   Eye,
   Edit2,
   Power,
@@ -23,15 +22,17 @@ import {
   AlertCircle,
   ArrowLeft,
   RefreshCw,
-  Clock,
   ExternalLink,
   ShieldCheck,
   FileText,
   Lock,
   Unlock,
-  Layers,
-  Map,
-  Archive,
+  Upload,
+  Image as ImageIcon,
+  FileSignature,
+  Stamp,
+  Trash2,
+  Key,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -44,6 +45,7 @@ export interface RegionItem {
   name: string;
   code: string;
   shortName: string | null;
+  registrationNo?: string | null;
   countryId: string | null;
   stateId: string | null;
   cityId: string | null;
@@ -57,36 +59,25 @@ export interface RegionItem {
   altPhone: string | null;
   email: string | null;
   website: string | null;
-  directorEmployeeId: string | null;
-  adminContactEmployeeId: string | null;
-  directorName: string | null;
-  adminContact: string | null;
-  coverageNotes: string | null;
-  coveredDistricts: string | null;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  loginUsername?: string | null;
+  loginStatus?: 'ACTIVE' | 'INACTIVE';
+  directorEmployeeId?: string | null;
+  adminContactEmployeeId?: string | null;
+  directorName?: string | null;
+  adminContact?: string | null;
+  coverageNotes?: string | null;
+  coveredDistricts?: string | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
-  remarks: string | null;
+  remarks?: string | null;
   createdAt: string;
   updatedAt: string;
   headOffice?: { id: string; name: string; code: string; city: string; status: string } | null;
   countryRef?: { id: string; name: string; isoCode: string; phoneCallingCode: string; currencyCode: string } | null;
   stateRef?: { id: string; name: string; code: string; type: string } | null;
   cityRef?: { id: string; name: string; code: string } | null;
-  director?: {
-    id: string;
-    employeeNo: string;
-    firstNameEn: string;
-    lastNameEn: string | null;
-    department?: { name: string } | null;
-    designation?: { name: string } | null;
-  } | null;
-  adminContactPerson?: {
-    id: string;
-    employeeNo: string;
-    firstNameEn: string;
-    lastNameEn: string | null;
-    department?: { name: string } | null;
-    designation?: { name: string } | null;
-  } | null;
 }
 
 interface CountryRef {
@@ -114,18 +105,6 @@ interface CityRef {
   name: string;
 }
 
-interface EmployeeLookupItem {
-  id: string;
-  employeeNo: string;
-  fullName: string;
-  firstNameEn: string;
-  lastNameEn: string | null;
-  department: string | null;
-  designation: string | null;
-  phone: string | null;
-  email: string | null;
-}
-
 interface AuditLogItem {
   id: string;
   action: string;
@@ -145,6 +124,157 @@ interface StatsData {
   citiesCount: number;
   availableCities: string[];
   availableHeadOffices: { id: string; name: string; code: string; city: string; status: string }[];
+}
+
+// Reusable Document / Branding File Uploader Component
+function FileUploadBox({
+  label,
+  assetType,
+  currentUrl,
+  icon: Icon,
+  onUploadSuccess,
+  onRemove,
+}: {
+  label: string;
+  assetType: 'logo' | 'signature' | 'stamp';
+  currentUrl: string | null;
+  icon: React.ElementType;
+  onUploadSuccess: (url: string, fileName: string) => void;
+  onRemove: () => void;
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadedName, setUploadedName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { error: toastError, success: toastSuccess } = useToast();
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate type
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+      toastError('Invalid File Format', 'Please select a PNG, JPG, or JPEG image file.');
+      return;
+    }
+
+    // Validate size (2MB max)
+    if (file.size > 2 * 1024 * 1024) {
+      toastError('File Too Large', 'Maximum file size allowed is 2 MB.');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', assetType);
+
+      const res = await fetch('/api/admin/organization/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (json.success && json.data?.url) {
+        setUploadedName(file.name);
+        onUploadSuccess(json.data.url, file.name);
+        toastSuccess('Upload Complete', label + ' uploaded successfully.');
+      } else {
+        toastError('Upload Failed', json.error?.message || 'Failed to upload image.');
+      }
+    } catch {
+      toastError('Upload Error', 'Could not reach the upload server.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Icon className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="text-3xs font-bold text-slate-800 uppercase tracking-wider">{label}</span>
+        </div>
+        <span className="text-[9px] font-semibold text-slate-400">PNG, JPG up to 2MB</span>
+      </div>
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept="image/png, image/jpeg, image/jpg"
+        className="hidden"
+      />
+
+      {currentUrl ? (
+        <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Thumbnail Preview */}
+            <div className="w-10 h-10 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={currentUrl}
+                alt={label}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-800 truncate">
+                {uploadedName || currentUrl.split('/').pop() || 'Uploaded file'}
+              </p>
+              <div className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                <CheckCircle2 className="w-2.5 h-2.5" />
+                <span>Uploaded</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded transition-colors"
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={isUploading}
+              className="text-slate-400 hover:text-rose-600 p-1 rounded hover:bg-rose-50 transition-colors"
+              title="Remove file"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="w-full py-3 px-3 border border-dashed border-slate-300 hover:border-indigo-400 rounded-lg bg-white/60 hover:bg-indigo-50/40 text-center transition-all flex flex-col items-center justify-center gap-1 text-slate-600"
+        >
+          {isUploading ? (
+            <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+          ) : (
+            <Upload className="w-4 h-4 text-slate-400" />
+          )}
+          <span className="text-2xs font-semibold text-slate-700">
+            {isUploading ? 'Uploading file...' : 'Choose ' + label}
+          </span>
+          <span className="text-[10px] text-slate-400">Click to browse local files</span>
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function RegionsView() {
@@ -168,7 +298,7 @@ export function RegionsView() {
   const [countries, setCountries] = useState<CountryRef[]>([]);
   const [states, setStates] = useState<StateRef[]>([]);
   const [cities, setCities] = useState<CityRef[]>([]);
-  const [employees, setEmployees] = useState<EmployeeLookupItem[]>([]);
+  const [headOfficesList, setHeadOfficesList] = useState<{ id: string; name: string; code: string; city: string; status: string }[]>([]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -180,6 +310,7 @@ export function RegionsView() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RegionItem | null>(null);
   const [isCodeLocked, setIsCodeLocked] = useState(true);
+  const [locationMode, setLocationMode] = useState<'MASTER' | 'MANUAL'>('MASTER');
   const [activeCallingCode, setActiveCallingCode] = useState('+92');
 
   const [formData, setFormData] = useState({
@@ -187,6 +318,7 @@ export function RegionsView() {
     name: '',
     code: '',
     shortName: '',
+    registrationNo: '',
     countryId: '',
     stateId: '',
     cityId: '',
@@ -200,17 +332,16 @@ export function RegionsView() {
     altPhone: '',
     email: '',
     website: '',
-    directorEmployeeId: '',
-    adminContactEmployeeId: '',
-    directorName: '',
-    adminContact: '',
-    coverageNotes: '',
-    coveredDistricts: '',
-    status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE' | 'ARCHIVED',
-    remarks: '',
+    logoUrl: null as string | null,
+    signatureUrl: null as string | null,
+    stampUrl: null as string | null,
+    loginUsername: '',
+    loginPassword: '',
+    confirmPassword: '',
+    loginStatus: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Detail Modal
   const [detailItem, setDetailItem] = useState<RegionItem | null>(null);
@@ -227,15 +358,25 @@ export function RegionsView() {
   // 1. Fetch Global References
   const fetchGlobalReferences = useCallback(async () => {
     try {
-      const [cRes, empRes] = await Promise.all([
+      const [cRes, hoRes] = await Promise.all([
         fetch('/api/admin/reference/countries'),
-        fetch('/api/admin/organization/employees/lookup'),
+        fetch('/api/admin/organization/head-offices'),
       ]);
 
-      const [cJson, empJson] = await Promise.all([cRes.json(), empRes.json()]);
+      const [cJson, hoJson] = await Promise.all([cRes.json(), hoRes.json()]);
 
-      if (cJson.success) setCountries(cJson.data || []);
-      if (empJson.success) setEmployees(empJson.data || []);
+      if (cJson.success && cJson.data) setCountries(cJson.data);
+      if (hoJson.success && hoJson.data?.items) {
+        setHeadOfficesList(
+          hoJson.data.items.map((ho: any) => ({
+            id: ho.id,
+            name: ho.name,
+            code: ho.code,
+            city: ho.city,
+            status: ho.status,
+          }))
+        );
+      }
     } catch {
       // Non-blocking
     }
@@ -250,32 +391,33 @@ export function RegionsView() {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
-      if (search) params.set('search', search);
+      if (search.trim()) params.set('search', search.trim());
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
       if (headOfficeFilter !== 'ALL') params.set('headOfficeId', headOfficeFilter);
       if (cityFilter !== 'ALL') params.set('city', cityFilter);
 
-      const res = await fetch(`/api/admin/organization/regions?${params.toString()}`);
+      const res = await fetch('/api/admin/organization/regions?' + params.toString());
       const json = await res.json();
       if (json.success && json.data) {
         setItems(json.data.items || []);
-        setStats(
-          json.data.stats || {
-            total: 0,
-            active: 0,
-            inactive: 0,
-            archived: 0,
-            headOfficesCount: 0,
-            citiesCount: 0,
-            availableCities: [],
-            availableHeadOffices: [],
-          }
-        );
+        setStats(json.data.stats || {
+          total: 0,
+          active: 0,
+          inactive: 0,
+          archived: 0,
+          headOfficesCount: 0,
+          citiesCount: 0,
+          availableCities: [],
+          availableHeadOffices: [],
+        });
+        if (json.data.stats?.availableHeadOffices?.length > 0) {
+          setHeadOfficesList(json.data.stats.availableHeadOffices);
+        }
       } else {
-        error('Failed to load Regions', json.error?.message);
+        error('Failed to load regions', json.error?.message);
       }
     } catch {
-      error('Network Error', 'Could not reach server.');
+      error('Network Error', 'Could not fetch regions.');
     } finally {
       setIsLoading(false);
     }
@@ -285,7 +427,7 @@ export function RegionsView() {
     fetchData();
   }, [fetchData]);
 
-  // Fetch States when Country changes in form
+  // Handle Country Selection & load States
   const handleCountryChange = async (countryId: string) => {
     const selectedCountry = countries.find((c) => c.id === countryId);
     setActiveCallingCode(selectedCountry?.phoneCallingCode || '+92');
@@ -293,26 +435,29 @@ export function RegionsView() {
     setFormData((prev) => ({
       ...prev,
       countryId,
-      country: selectedCountry?.name || prev.country,
+      country: selectedCountry?.name || 'Pakistan',
       stateId: '',
       state: '',
       cityId: '',
+      city: '',
     }));
     setStates([]);
     setCities([]);
 
     if (countryId) {
       try {
-        const res = await fetch(`/api/admin/reference/states?countryId=${countryId}`);
+        const res = await fetch('/api/admin/reference/states?countryId=' + countryId);
         const json = await res.json();
-        if (json.success) setStates(json.data || []);
+        if (json.success && json.data) {
+          setStates(json.data);
+        }
       } catch {
         // Non-blocking
       }
     }
   };
 
-  // Fetch Cities when State changes in form
+  // Handle State Selection & load Cities
   const handleStateChange = async (stateId: string) => {
     const selectedState = states.find((s) => s.id === stateId);
     setFormData((prev) => ({
@@ -320,14 +465,17 @@ export function RegionsView() {
       stateId,
       state: selectedState?.name || '',
       cityId: '',
+      city: '',
     }));
     setCities([]);
 
     if (stateId) {
       try {
-        const res = await fetch(`/api/admin/reference/cities?stateId=${stateId}`);
+        const res = await fetch('/api/admin/reference/cities?stateId=' + stateId);
         const json = await res.json();
-        if (json.success) setCities(json.data || []);
+        if (json.success && json.data) {
+          setCities(json.data);
+        }
       } catch {
         // Non-blocking
       }
@@ -337,24 +485,22 @@ export function RegionsView() {
   // Auto generate code when City changes if code is locked
   const handleCityChange = async (cityId: string) => {
     const selectedCity = cities.find((c) => c.id === cityId);
-    const cityName = selectedCity?.name || '';
-    const cityCode = selectedCity?.code || cityName.slice(0, 3).toUpperCase();
-
+    const cityName = selectedCity?.name || formData.city || 'Karachi';
     setFormData((prev) => ({
       ...prev,
       cityId,
-      city: cityName || prev.city,
+      city: cityName,
     }));
 
     if (isCodeLocked && !editingItem) {
       try {
-        const res = await fetch(`/api/admin/organization/regions/generate-code?city=${cityCode}`);
+        const res = await fetch('/api/admin/organization/regions/generate-code?city=' + encodeURIComponent(cityName));
         const json = await res.json();
         if (json.success && json.data?.code) {
           setFormData((prev) => ({
             ...prev,
             code: json.data.code,
-            shortName: `${cityCode}-REG`,
+            loginUsername: prev.loginUsername || json.data.code.toLowerCase().replace(/-/g, '_'),
           }));
         }
       } catch {
@@ -363,134 +509,108 @@ export function RegionsView() {
     }
   };
 
+  // Open Create Modal
   const handleOpenCreate = useCallback(async () => {
     setEditingItem(null);
     setIsCodeLocked(true);
+    setLocationMode('MASTER');
     setFormErrors({});
 
-    const defaultHeadOffice = stats.availableHeadOffices.find((ho) => ho.status === 'ACTIVE') || stats.availableHeadOffices[0];
-    const headOfficeId = defaultHeadOffice?.id || '';
+    // Look up default active Head Office
+    const activeHO = headOfficesList.find((h) => h.status === 'ACTIVE') || headOfficesList[0];
+    const defaultHOId = activeHO ? activeHO.id : '';
 
-    // Default to Pakistan if available
-    const pk = countries.find((c) => c.isoCode === 'PK') || countries[0];
-    const countryId = pk?.id || '';
-    setActiveCallingCode(pk?.phoneCallingCode || '+92');
+    // Look up default Pakistan ID if present
+    const pkCountry = countries.find((c) => c.isoCode === 'PK');
+    const defaultCountryId = pkCountry ? pkCountry.id : (countries[0]?.id || '');
+    const defaultCallingCode = pkCountry?.phoneCallingCode || '+92';
+    setActiveCallingCode(defaultCallingCode);
 
-    let defaultStates: StateRef[] = [];
-    if (countryId) {
-      try {
-        const res = await fetch(`/api/admin/reference/states?countryId=${countryId}`);
-        const json = await res.json();
-        if (json.success) defaultStates = json.data || [];
-      } catch {
-        // Non-blocking
-      }
-    }
-    setStates(defaultStates);
-
-    const sd = defaultStates.find((s) => s.code === 'SD') || defaultStates[0];
-    const stateId = sd?.id || '';
-
-    let defaultCities: CityRef[] = [];
-    if (stateId) {
-      try {
-        const res = await fetch(`/api/admin/reference/cities?stateId=${stateId}`);
-        const json = await res.json();
-        if (json.success) defaultCities = json.data || [];
-      } catch {
-        // Non-blocking
-      }
-    }
-    setCities(defaultCities);
-
-    const khi = defaultCities.find((c) => c.code === 'KHI') || defaultCities[0];
-    const cityId = khi?.id || '';
-
-    let generatedCode = 'REG-KHI-001';
+    let defaultCode = 'REG-KHI-001';
     try {
-      const res = await fetch('/api/admin/organization/regions/generate-code?city=KHI');
+      const res = await fetch('/api/admin/organization/regions/generate-code?city=Karachi');
       const json = await res.json();
       if (json.success && json.data?.code) {
-        generatedCode = json.data.code;
+        defaultCode = json.data.code;
       }
     } catch {
-      // Non-blocking
+      // Fallback
     }
 
     setFormData({
-      headOfficeId,
+      headOfficeId: defaultHOId,
       name: '',
-      code: generatedCode,
-      shortName: 'KHI-REG',
-      countryId,
-      stateId,
-      cityId,
+      code: defaultCode,
+      shortName: '',
+      registrationNo: '',
+      countryId: defaultCountryId,
+      stateId: '',
+      cityId: '',
       addressLine1: '',
       addressLine2: '',
-      city: khi?.name || 'Karachi',
-      state: sd?.name || 'Sindh',
-      country: pk?.name || 'Pakistan',
+      city: 'Karachi',
+      state: 'Sindh',
+      country: 'Pakistan',
       postalCode: '',
       phone: '',
       altPhone: '',
       email: '',
       website: '',
-      directorEmployeeId: '',
-      adminContactEmployeeId: '',
-      directorName: '',
-      adminContact: '',
-      coverageNotes: '',
-      coveredDistricts: '',
-      status: 'ACTIVE',
-      remarks: '',
+      logoUrl: null,
+      signatureUrl: null,
+      stampUrl: null,
+      loginUsername: defaultCode.toLowerCase().replace(/-/g, '_'),
+      loginPassword: '',
+      confirmPassword: '',
+      loginStatus: 'ACTIVE',
     });
-    setIsFormOpen(true);
-  }, [countries, stats.availableHeadOffices]);
 
-  // Auto-open modal if ?action=create
-  useEffect(() => {
-    if (searchParams.get('action') === 'create') {
-      handleOpenCreate();
+    if (defaultCountryId) {
+      try {
+        const sRes = await fetch('/api/admin/reference/states?countryId=' + defaultCountryId);
+        const sJson = await sRes.json();
+        if (sJson.success && sJson.data) {
+          setStates(sJson.data);
+          const sindh = sJson.data.find((s: StateRef) => s.code === 'SD' || s.name.includes('Sindh'));
+          if (sindh) {
+            setFormData((prev) => ({ ...prev, stateId: sindh.id, state: sindh.name }));
+            const cRes = await fetch('/api/admin/reference/cities?stateId=' + sindh.id);
+            const cJson = await cRes.json();
+            if (cJson.success && cJson.data) {
+              setCities(cJson.data);
+              const khi = cJson.data.find((c: CityRef) => c.code === 'KHI' || c.name.includes('Karachi'));
+              if (khi) {
+                setFormData((prev) => ({ ...prev, cityId: khi.id, city: khi.name }));
+              }
+            }
+          }
+        }
+      } catch {
+        // Non-blocking
+      }
     }
-  }, [searchParams, handleOpenCreate]);
 
+    setIsFormOpen(true);
+  }, [countries, headOfficesList]);
+
+  // Open Edit Modal
   const handleOpenEdit = async (item: RegionItem) => {
     setEditingItem(item);
     setIsCodeLocked(false);
     setFormErrors({});
 
-    let currentStates: StateRef[] = [];
-    if (item.countryId) {
-      try {
-        const res = await fetch(`/api/admin/reference/states?countryId=${item.countryId}`);
-        const json = await res.json();
-        if (json.success) currentStates = json.data || [];
-      } catch {
-        // Non-blocking
-      }
-    }
-    setStates(currentStates);
+    const hasRef = Boolean(item.countryId && item.cityId);
+    setLocationMode(hasRef ? 'MASTER' : 'MANUAL');
 
-    let currentCities: CityRef[] = [];
-    if (item.stateId) {
-      try {
-        const res = await fetch(`/api/admin/reference/cities?stateId=${item.stateId}`);
-        const json = await res.json();
-        if (json.success) currentCities = json.data || [];
-      } catch {
-        // Non-blocking
-      }
-    }
-    setCities(currentCities);
-
-    const activeC = countries.find((c) => c.id === item.countryId);
-    setActiveCallingCode(activeC?.phoneCallingCode || item.countryRef?.phoneCallingCode || '+92');
+    const countryObj = countries.find((c) => c.id === item.countryId);
+    setActiveCallingCode(countryObj?.phoneCallingCode || item.countryRef?.phoneCallingCode || '+92');
 
     setFormData({
-      headOfficeId: item.headOfficeId,
-      name: item.name,
-      code: item.code,
+      headOfficeId: item.headOfficeId || '',
+      name: item.name || '',
+      code: item.code || '',
       shortName: item.shortName || '',
+      registrationNo: item.registrationNo || '',
       countryId: item.countryId || '',
       stateId: item.stateId || '',
       cityId: item.cityId || '',
@@ -504,25 +624,190 @@ export function RegionsView() {
       altPhone: item.altPhone || '',
       email: item.email || '',
       website: item.website || '',
-      directorEmployeeId: item.directorEmployeeId || '',
-      adminContactEmployeeId: item.adminContactEmployeeId || '',
-      directorName: item.directorName || '',
-      adminContact: item.adminContact || '',
-      coverageNotes: item.coverageNotes || '',
-      coveredDistricts: item.coveredDistricts || '',
-      status: item.status,
-      remarks: item.remarks || '',
+      logoUrl: item.logoUrl || null,
+      signatureUrl: item.signatureUrl || null,
+      stampUrl: item.stampUrl || null,
+      loginUsername: item.loginUsername || item.code.toLowerCase().replace(/-/g, '_'),
+      loginPassword: '',
+      confirmPassword: '',
+      loginStatus: (item.loginStatus as 'ACTIVE' | 'INACTIVE') || (item.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
     });
+
+    if (item.countryId) {
+      try {
+        const sRes = await fetch('/api/admin/reference/states?countryId=' + item.countryId);
+        const sJson = await sRes.json();
+        if (sJson.success && sJson.data) {
+          setStates(sJson.data);
+          if (item.stateId) {
+            const cRes = await fetch('/api/admin/reference/cities?stateId=' + item.stateId);
+            const cJson = await cRes.json();
+            if (cJson.success && cJson.data) {
+              setCities(cJson.data);
+            }
+          }
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
     setIsFormOpen(true);
   };
 
+  // Close Modal
+  const handleCloseForm = () => {
+    setIsFormOpen(false);
+    setEditingItem(null);
+    setFormErrors({});
+  };
+
+  // Form Client-side Validation
+  const validateForm = () => {
+    const errs: Record<string, string> = {};
+
+    // 1. Mandatory Parent Head Office
+    if (!formData.headOfficeId || !formData.headOfficeId.trim()) {
+      errs.headOfficeId = 'Parent Head Office is required. A Region must belong to a Head Office.';
+    }
+
+    // 2. Mandatory Basic info
+    if (!formData.name.trim()) errs.name = 'Region Name is required.';
+    if (!formData.code.trim()) errs.code = 'Region Code is required.';
+
+    // 3. Mandatory Location info
+    if (!formData.addressLine1.trim()) errs.addressLine1 = 'Address Line 1 is required.';
+    if (!formData.city?.trim()) errs.city = 'City is required.';
+
+    // 4. Mandatory Contact info
+    if (!formData.phone?.trim()) {
+      errs.phone = 'Official Phone is required.';
+    }
+    if (!formData.email?.trim()) {
+      errs.email = 'Official Email is required.';
+    } else if (!/^[^s@]+@[^s@]+.[^s@]+$/.test(formData.email.trim())) {
+      errs.email = 'Invalid email format (e.g. region@school.edu.pk).';
+    }
+
+    // 5. Login Access validation
+    if (!formData.loginUsername || formData.loginUsername.trim().length < 3) {
+      errs.loginUsername = 'Login ID / Username must be at least 3 characters.';
+    }
+
+    if (!editingItem) {
+      // Create mode requires initial password
+      if (!formData.loginPassword || formData.loginPassword.length < 8) {
+        errs.loginPassword = 'Password must be at least 8 characters long.';
+      }
+      if (formData.loginPassword !== formData.confirmPassword) {
+        errs.confirmPassword = 'Passwords do not match.';
+      }
+    } else {
+      // Edit mode: password optional, but if entered, must be valid and match confirmPassword
+      if (formData.loginPassword && formData.loginPassword.length < 8) {
+        errs.loginPassword = 'New password must be at least 8 characters long.';
+      }
+      if (formData.loginPassword && formData.loginPassword !== formData.confirmPassword) {
+        errs.confirmPassword = 'Passwords do not match.';
+      }
+    }
+
+    setFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // Save (Create / Update)
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    setIsSaving(true);
+    try {
+      const url = editingItem
+        ? '/api/admin/organization/regions/' + editingItem.id
+        : '/api/admin/organization/regions';
+      const method = editingItem ? 'PUT' : 'POST';
+
+      const payload: any = {
+        headOfficeId: formData.headOfficeId.trim(),
+        name: formData.name.trim(),
+        code: formData.code.trim().toUpperCase(),
+        shortName: formData.shortName.trim() ? formData.shortName.trim().toUpperCase() : null,
+        registrationNo: formData.registrationNo.trim() || null,
+        addressLine1: formData.addressLine1.trim(),
+        addressLine2: formData.addressLine2.trim() || null,
+        postalCode: formData.postalCode.trim() || null,
+        phone: formData.phone.trim() || null,
+        altPhone: formData.altPhone.trim() || null,
+        email: formData.email.trim() || null,
+        website: formData.website.trim() || null,
+        logoUrl: formData.logoUrl || null,
+        signatureUrl: formData.signatureUrl || null,
+        stampUrl: formData.stampUrl || null,
+        loginUsername: formData.loginUsername.trim().toLowerCase(),
+        loginStatus: formData.loginStatus,
+        status: formData.loginStatus,
+      };
+
+      if (formData.loginPassword && formData.loginPassword.trim()) {
+        payload.loginPassword = formData.loginPassword.trim();
+      }
+
+      if (locationMode === 'MASTER') {
+        payload.countryId = formData.countryId || null;
+        payload.stateId = formData.stateId || null;
+        payload.cityId = formData.cityId || null;
+
+        const selCountry = countries.find((c) => c.id === formData.countryId);
+        const selState = states.find((s) => s.id === formData.stateId);
+        const selCity = cities.find((c) => c.id === formData.cityId);
+
+        payload.country = selCountry?.name || 'Pakistan';
+        payload.state = selState?.name || null;
+        payload.city = selCity?.name || formData.city;
+      } else {
+        payload.countryId = null;
+        payload.stateId = null;
+        payload.cityId = null;
+        payload.country = formData.country || 'Pakistan';
+        payload.state = formData.state || null;
+        payload.city = formData.city;
+      }
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        success(
+          editingItem ? 'Region Updated' : 'Region Created',
+          'Successfully saved ' + payload.name + ' (' + payload.code + ')'
+        );
+        handleCloseForm();
+        fetchData();
+      } else {
+        error(
+          editingItem ? 'Update Failed' : 'Creation Failed',
+          json.error?.message || 'Could not save Region.'
+        );
+      }
+    } catch {
+      error('Error', 'An unexpected error occurred while saving.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Open Detail Drawer
   const handleOpenDetail = async (item: RegionItem) => {
     setDetailItem(item);
     setDetailTab('OVERVIEW');
-    setAuditLogs([]);
     setIsLoadingAudit(true);
     try {
-      const res = await fetch(`/api/admin/organization/regions/${item.id}/audit`);
+      const res = await fetch('/api/admin/organization/regions/' + item.id + '/audit');
       const json = await res.json();
       if (json.success) {
         setAuditLogs(json.data || []);
@@ -534,1051 +819,1263 @@ export function RegionsView() {
     }
   };
 
-  const validateForm = () => {
-    const errors: Record<string, string> = {};
-    if (!formData.headOfficeId) errors.headOfficeId = 'Parent Head Office selection is required.';
-    if (!formData.name.trim()) errors.name = 'Region Name is required.';
-    if (!formData.code.trim()) errors.code = 'Region Code is required.';
-
-    if (formData.email.trim()) {
-      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,}$/;
-      if (!emailRegex.test(formData.email.trim())) {
-        errors.email = 'Please enter a valid official email address.';
-      }
-    }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+  // Open Status Toggle Dialog
+  const handleOpenToggle = (item: RegionItem, target: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED') => {
+    setToggleItem(item);
+    setTargetStatus(target);
+    setToggleReason('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    setIsSubmitting(true);
-    try {
-      const url = editingItem
-        ? `/api/admin/organization/regions/${editingItem.id}`
-        : '/api/admin/organization/regions';
-      const method = editingItem ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      const json = await res.json();
-      if (json.success) {
-        success(
-          editingItem ? 'Region Updated' : 'Region Created',
-          `${formData.name} has been successfully ${editingItem ? 'updated' : 'created'}.`
-        );
-        setIsFormOpen(false);
-        fetchData();
-      } else {
-        error('Action Failed', json.error?.message || 'Could not save Region.');
-      }
-    } catch {
-      error('Network Error', 'Failed to connect to the server.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleToggleStatus = async () => {
+  // Confirm Status Change
+  const handleConfirmToggle = async () => {
     if (!toggleItem) return;
     setIsToggling(true);
     try {
-      const res = await fetch(`/api/admin/organization/regions/${toggleItem.id}/status`, {
+      const res = await fetch('/api/admin/organization/regions/' + toggleItem.id + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: targetStatus,
-          reason: toggleReason.trim() || undefined,
-        }),
+        body: JSON.stringify({ status: targetStatus, reason: toggleReason }),
       });
-
       const json = await res.json();
       if (json.success) {
         success(
-          'Region Status Updated',
-          `${toggleItem.name} is now ${targetStatus.toLowerCase()}.`
+          'Status Changed',
+          'Region "' + toggleItem.name + '" is now ' + targetStatus + '.'
         );
         setToggleItem(null);
-        setToggleReason('');
         fetchData();
       } else {
         error('Status Change Failed', json.error?.message);
       }
     } catch {
-      error('Network Error', 'Failed to change Region status.');
+      error('Error', 'Could not toggle status.');
     } finally {
       setIsToggling(false);
     }
   };
 
+  // URL action listener for ?action=new
+  useEffect(() => {
+    if (searchParams?.get('action') === 'new') {
+      handleOpenCreate();
+    }
+  }, [searchParams, handleOpenCreate]);
+
   return (
-    <div className="space-y-4">
-      {/* Top Header & Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <Link
-            href="/admin/settings"
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors"
-            title="Return to Configuration Center"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600 border border-emerald-100">
-            <Compass className="w-5 h-5" />
+    <div className="w-full space-y-3 pb-8">
+      {/* 1. TOP HEADER & BREADCRUMB */}
+      <div className="w-full bg-white rounded-xl border border-slate-200/90 shadow-2xs p-3 sm:p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs">
+            <Link
+              href="/admin/settings"
+              className="inline-flex items-center gap-1.5 font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100/80 border border-indigo-200/80 px-2.5 py-1 rounded-md transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Settings</span>
+            </Link>
+            <span className="text-slate-300 font-bold">/</span>
+            <span className="font-semibold text-slate-500">Organization Hierarchy</span>
+            <span className="text-slate-300 font-bold">/</span>
+            <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-3xs">
+              Regions & Regional Hubs
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold text-slate-900 tracking-tight">
+          <div className="flex items-center gap-2.5 pt-0.5">
+            <div className="w-8 h-8 rounded-lg bg-linear-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shadow-xs">
+              <Compass className="w-4 h-4" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-slate-900 tracking-tight leading-tight">
                 Region Management
               </h1>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded">
-                Tier 2 Optional Division
-              </span>
+              <p className="text-2xs text-slate-500 font-medium">
+                Configure intermediate regional governance hubs linked under Parent Head Offices
+              </p>
             </div>
-            <p className="text-3xs text-slate-500">
-              Configure territorial operational jurisdictions, multi-district coverage, regional leadership, and branch oversight.
-            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             variant="outline"
             size="sm"
             onClick={fetchData}
             disabled={isLoading}
-            className="h-8 text-xs font-semibold px-2.5 border-slate-200 text-slate-600 hover:bg-slate-50"
+            className="h-8.5 px-3 text-xs font-semibold gap-1.5 border-slate-200 hover:bg-slate-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={'w-3.5 h-3.5 ' + (isLoading ? 'animate-spin text-indigo-600' : 'text-slate-500')} />
+            <span>Refresh</span>
           </Button>
+
           <Button
-            size="sm"
             onClick={handleOpenCreate}
-            className="h-8 text-xs font-semibold px-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+            size="sm"
+            className="h-8.5 px-3.5 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            Add Region
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Region</span>
           </Button>
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
-          <div>
-            <p className="text-3xs font-bold text-slate-400 uppercase tracking-wider">Total Regions</p>
-            <h3 className="text-lg font-black text-slate-900 mt-0.5">{stats.total}</h3>
-            <p className="text-3xs text-slate-500 font-medium">Territorial Divisions</p>
+      {/* 2. STATS OVERVIEW CARDS */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+        <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-3xs font-bold uppercase tracking-wider">Total Regions</span>
+            <Compass className="w-3.5 h-3.5 text-slate-400" />
           </div>
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
-            <Compass className="w-4 h-4" />
-          </div>
+          <p className="text-lg font-bold text-slate-900 mt-1">{stats.total}</p>
+          <p className="text-3xs text-slate-400 font-medium">All regional registries</p>
         </div>
 
-        <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
-          <div>
-            <p className="text-3xs font-bold text-emerald-600 uppercase tracking-wider">Active Regions</p>
-            <h3 className="text-lg font-black text-emerald-700 mt-0.5">{stats.active}</h3>
-            <p className="text-3xs text-emerald-600 font-medium">Operational Hubs</p>
+        <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between text-emerald-600">
+            <span className="text-3xs font-bold uppercase tracking-wider">Active</span>
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
           </div>
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
-            <CheckCircle2 className="w-4 h-4" />
-          </div>
+          <p className="text-lg font-bold text-emerald-700 mt-1">{stats.active}</p>
+          <p className="text-3xs text-slate-400 font-medium">Operational divisions</p>
         </div>
 
-        <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
-          <div>
-            <p className="text-3xs font-bold text-indigo-600 uppercase tracking-wider">Head Offices Linked</p>
-            <h3 className="text-lg font-black text-indigo-700 mt-0.5">{stats.headOfficesCount}</h3>
-            <p className="text-3xs text-indigo-600 font-medium">Parent Secretariats</p>
+        <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between text-amber-600">
+            <span className="text-3xs font-bold uppercase tracking-wider">Inactive / Archived</span>
+            <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
           </div>
-          <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
-            <Building2 className="w-4 h-4" />
-          </div>
+          <p className="text-lg font-bold text-amber-700 mt-1">{stats.inactive + stats.archived}</p>
+          <p className="text-3xs text-slate-400 font-medium">Non-operational</p>
         </div>
 
-        <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs flex items-center justify-between">
-          <div>
-            <p className="text-3xs font-bold text-sky-600 uppercase tracking-wider">Cities Covered</p>
-            <h3 className="text-lg font-black text-sky-700 mt-0.5">{stats.citiesCount}</h3>
-            <p className="text-3xs text-sky-600 font-medium">Geographic Locations</p>
+        <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+          <div className="flex items-center justify-between text-indigo-600">
+            <span className="text-3xs font-bold uppercase tracking-wider">Parent Head Offices</span>
+            <Building2 className="w-3.5 h-3.5 text-indigo-500" />
           </div>
-          <div className="w-9 h-9 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100">
-            <MapPin className="w-4 h-4" />
+          <p className="text-lg font-bold text-indigo-700 mt-1">{stats.headOfficesCount}</p>
+          <p className="text-3xs text-slate-400 font-medium">Governing Secretariats</p>
+        </div>
+
+        <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-between text-sky-600">
+            <span className="text-3xs font-bold uppercase tracking-wider">Cities Covered</span>
+            <MapPin className="w-3.5 h-3.5 text-sky-500" />
           </div>
+          <p className="text-lg font-bold text-sky-700 mt-1">{stats.citiesCount}</p>
+          <p className="text-3xs text-slate-400 font-medium">Geographic regions</p>
         </div>
       </div>
 
-      {/* Filter Toolbar & Data Table Container */}
-      <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
-        {/* Filter Bar */}
-        <div className="p-3 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-2.5 justify-between items-stretch md:items-center">
-          <div className="flex-1 relative max-w-md">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by region name, code, parent office, city, director, districts..."
-              className="w-full pl-8.5 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-medium"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Status Filter */}
-            <div className="flex items-center gap-1 bg-slate-200/70 p-0.5 rounded-lg text-3xs font-semibold text-slate-600">
-              {['ALL', 'ACTIVE', 'INACTIVE', 'ARCHIVED'].map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 rounded-md transition-all ${
-                    statusFilter === st
-                      ? 'bg-white text-emerald-700 shadow-2xs font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {st === 'ALL' ? 'All Status' : st}
-                </button>
-              ))}
-            </div>
-
-            {/* Parent Head Office Filter */}
-            {stats.availableHeadOffices && stats.availableHeadOffices.length > 0 && (
-              <select
-                value={headOfficeFilter}
-                onChange={(e) => setHeadOfficeFilter(e.target.value)}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-2xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              >
-                <option value="ALL">All Head Offices ({stats.availableHeadOffices.length})</option>
-                {stats.availableHeadOffices.map((ho) => (
-                  <option key={ho.id} value={ho.id}>
-                    {ho.name} [{ho.code}]
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {/* City Filter */}
-            {stats.availableCities && stats.availableCities.length > 0 && (
-              <select
-                value={cityFilter}
-                onChange={(e) => setCityFilter(e.target.value)}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-2xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              >
-                <option value="ALL">All Cities ({stats.availableCities.length})</option>
-                {stats.availableCities.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+      {/* 3. FILTERS BAR */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-2.5">
+        <div className="relative w-full md:w-80">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search by Region Name, Code, City, Parent Head Office..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8.5 pr-3 py-1.5 text-xs bg-slate-50/80 border border-slate-200 rounded-lg focus:outline-none focus:ring-1.5 focus:ring-indigo-500 focus:bg-white text-slate-800 placeholder:text-slate-400 font-medium transition-all"
+          />
         </div>
 
-        {/* Regions Table */}
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
+
+          {/* Parent Head Office Filter */}
+          <select
+            value={headOfficeFilter}
+            onChange={(e) => setHeadOfficeFilter(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ALL">All Head Offices</option>
+            {headOfficesList.map((ho) => (
+              <option key={ho.id} value={ho.id}>
+                {ho.name} ({ho.code})
+              </option>
+            ))}
+          </select>
+
+          {/* City Filter */}
+          <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ALL">All Cities</option>
+            {stats.availableCities.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+
+          {(search || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || cityFilter !== 'ALL') && (
+            <button
+              onClick={() => {
+                setSearch('');
+                setStatusFilter('ALL');
+                setHeadOfficeFilter('ALL');
+                setCityFilter('ALL');
+              }}
+              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              title="Reset Filters"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 4. REGIONS TABLE */}
+      <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/70 text-3xs font-bold text-slate-500 uppercase tracking-wider">
-                <th className="py-2.5 px-3.5">Region Identity &amp; Code</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200/80 text-3xs font-bold text-slate-500 uppercase tracking-wider">
+                <th className="py-2.5 px-3.5">Region Name & Code</th>
                 <th className="py-2.5 px-3.5">Parent Head Office</th>
-                <th className="py-2.5 px-3.5">Jurisdiction &amp; Districts</th>
-                <th className="py-2.5 px-3.5">Regional Leadership</th>
-                <th className="py-2.5 px-3.5">Status</th>
+                <th className="py-2.5 px-3.5">Location</th>
+                <th className="py-2.5 px-3.5">Contact Details</th>
+                <th className="py-2.5 px-3.5">Documents</th>
+                <th className="py-2.5 px-3.5">Login Access</th>
+                <th className="py-2.5 px-3.5 text-center">Status</th>
                 <th className="py-2.5 px-3.5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
+            <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-600" />
-                    Loading regional directory...
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                    <span className="font-semibold text-2xs">Loading regions registry...</span>
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Compass className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-600">No regions found</p>
-                    <p className="text-3xs text-slate-400 mt-0.5">
-                      {search || statusFilter !== 'ALL' || headOfficeFilter !== 'ALL' || cityFilter !== 'ALL'
-                        ? 'Try clearing active filters.'
-                        : 'Click "Add Region" to establish your first territorial division.'}
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                    <Compass className="w-7 h-7 mx-auto mb-2 text-slate-300" />
+                    <p className="font-bold text-slate-700 text-xs">No Regions Found</p>
+                    <p className="text-2xs text-slate-400 mt-0.5">
+                      {search || statusFilter !== 'ALL'
+                        ? 'Try adjusting your search filters.'
+                        : 'Create the first Region under an active Head Office.'}
                     </p>
                   </td>
                 </tr>
               ) : (
-                items.map((item) => {
-                  const isActive = item.status === 'ACTIVE';
-                  const isArchived = item.status === 'ARCHIVED';
-
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-slate-50/80 transition-colors group"
-                    >
-                      {/* Region Identity */}
-                      <td className="py-2.5 px-3.5">
-                        <div className="flex items-start gap-2.5">
-                          <div
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
-                              isActive
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
-                                : isArchived
-                                ? 'bg-amber-50 text-amber-700 border-amber-200/70'
-                                : 'bg-slate-100 text-slate-500 border-slate-200'
-                            }`}
-                          >
+                items.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                    {/* 1. Region Name & Code */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      <div className="flex items-start gap-2">
+                        {item.logoUrl ? (
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={item.logoUrl} alt={item.name} className="w-full h-full object-contain" />
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
                             <Compass className="w-4 h-4" />
                           </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
-                                {item.name}
-                              </span>
-                              {item.shortName && (
-                                <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
-                                  {item.shortName}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-3xs font-medium text-slate-500">
-                              <span className="font-mono text-emerald-800 bg-emerald-50/80 border border-emerald-200/60 px-1 rounded font-bold">
-                                {item.code}
-                              </span>
-                              {item.city && <span>• {item.city}</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Parent Head Office */}
-                      <td className="py-2.5 px-3.5">
-                        <div className="flex items-center gap-1.5">
-                          <Building2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                          <div className="truncate max-w-[200px]">
-                            <span className="font-semibold text-slate-800 block text-2xs truncate">
-                              {item.headOffice?.name || 'N/A'}
+                        )}
+                        <div>
+                          <p className="font-bold text-slate-900 text-xs leading-snug">{item.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="font-mono text-3xs font-bold text-indigo-600 bg-indigo-50/80 px-1.5 py-0.5 rounded border border-indigo-100">
+                              {item.code}
                             </span>
-                            {item.headOffice?.code && (
-                              <span className="font-mono text-[9px] text-indigo-700 font-bold">
-                                [{item.headOffice.code}]
+                            {item.registrationNo && (
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                Ref: {item.registrationNo}
                               </span>
                             )}
                           </div>
                         </div>
-                      </td>
+                      </div>
+                    </td>
 
-                      {/* Jurisdiction & Districts */}
-                      <td className="py-2.5 px-3.5">
-                        <div className="space-y-1 max-w-[240px]">
-                          {item.coveredDistricts ? (
-                            <div className="flex flex-wrap gap-1">
-                              {item.coveredDistricts
-                                .split(',')
-                                .map((d) => d.trim())
-                                .filter(Boolean)
-                                .slice(0, 3)
-                                .map((dist, i) => (
-                                  <span
-                                    key={i}
-                                    className="text-[9px] font-medium bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded border border-slate-200 truncate max-w-[100px]"
-                                    title={dist}
-                                  >
-                                    {dist}
-                                  </span>
-                                ))}
-                              {item.coveredDistricts.split(',').length > 3 && (
-                                <span className="text-[9px] font-bold text-slate-400">
-                                  +{item.coveredDistricts.split(',').length - 3} more
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-3xs text-slate-400 italic">No specific districts listed</span>
-                          )}
-                          {item.coverageNotes && (
-                            <p className="text-3xs text-slate-500 truncate" title={item.coverageNotes}>
-                              {item.coverageNotes}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Regional Leadership */}
-                      <td className="py-2.5 px-3.5">
+                    {/* 2. Parent Head Office */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      {item.headOffice ? (
                         <div className="space-y-0.5">
-                          <div className="flex items-center gap-1.5 text-2xs text-slate-800 font-medium">
-                            <User className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span className="truncate max-w-[160px]">
-                              {item.directorName || (item.director ? `${item.director.firstNameEn} ${item.director.lastNameEn || ''}` : 'Unassigned')}
-                            </span>
-                            {item.director && (
-                              <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-1 rounded border border-emerald-200/60 shrink-0">
-                                HR: {item.director.employeeNo}
-                              </span>
-                            )}
+                          <div className="inline-flex items-center gap-1 text-xs font-semibold text-slate-800">
+                            <Building2 className="w-3 h-3 text-indigo-500" />
+                            <span>{item.headOffice.name}</span>
                           </div>
-                          {item.adminContact && (
-                            <p className="text-3xs text-slate-500 truncate max-w-[160px]">
-                              Admin: {item.adminContact}
-                            </p>
-                          )}
+                          <p className="text-3xs text-slate-400 font-mono">[{item.headOffice.code}]</p>
                         </div>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-2.5 px-3.5">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold border ${
-                            isActive
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : isArchived
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              isActive ? 'bg-emerald-500' : isArchived ? 'bg-amber-500' : 'bg-slate-400'
-                            }`}
-                          />
-                          {item.status}
+                      ) : (
+                        <span className="text-3xs text-rose-500 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          Unassigned (Invalid)
                         </span>
-                      </td>
+                      )}
+                    </td>
 
-                      {/* Actions */}
-                      <td className="py-2.5 px-3.5 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => handleOpenDetail(item)}
-                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                            title="View Overview & Audit History"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                            title="Edit Region Details"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setToggleItem(item);
-                              setTargetStatus(item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE');
-                              setToggleReason('');
-                            }}
-                            className={`p-1 rounded transition-colors ${
-                              isActive
-                                ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                                : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
-                            }`}
-                            title={isActive ? 'Deactivate or Archive Region' : 'Activate Region'}
-                          >
-                            <Power className="w-3.5 h-3.5" />
-                          </button>
+                    {/* 3. Location */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1 font-semibold text-slate-800 text-2xs">
+                          <MapPin className="w-3 h-3 text-slate-400" />
+                          <span>{item.city || 'Karachi'}{item.state ? ', ' + item.state : ''}</span>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                        <p className="text-3xs text-slate-500 truncate max-w-[160px]" title={item.addressLine1 || ''}>
+                          {item.addressLine1 || 'No address specified'}
+                        </p>
+                      </div>
+                    </td>
+
+                    {/* 4. Contact Details */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      <div className="space-y-0.5 text-2xs font-medium text-slate-700">
+                        {item.phone && (
+                          <div className="flex items-center gap-1">
+                            <Phone className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{item.phone}</span>
+                          </div>
+                        )}
+                        {item.email && (
+                          <div className="flex items-center gap-1 text-slate-500 truncate max-w-[150px]" title={item.email}>
+                            <Mail className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{item.email}</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 5. Documents / Branding */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      <div className="flex items-center gap-1.5">
+                        {item.logoUrl ? (
+                          <span className="inline-flex items-center gap-1 text-3xs font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/80" title="Logo Attached">
+                            <ImageIcon className="w-2.5 h-2.5" />
+                            Logo
+                          </span>
+                        ) : null}
+                        {item.signatureUrl ? (
+                          <span className="inline-flex items-center gap-1 text-3xs font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/80" title="Signature Attached">
+                            <FileSignature className="w-2.5 h-2.5" />
+                            Sig
+                          </span>
+                        ) : null}
+                        {item.stampUrl ? (
+                          <span className="inline-flex items-center gap-1 text-3xs font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200/80" title="Stamp Attached">
+                            <Stamp className="w-2.5 h-2.5" />
+                            Seal
+                          </span>
+                        ) : null}
+                        {!item.logoUrl && !item.signatureUrl && !item.stampUrl && (
+                          <span className="text-3xs text-slate-400 italic">None</span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 6. Login Access */}
+                    <td className="py-2.5 px-3.5 align-top">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1 font-mono text-3xs font-bold text-slate-700 bg-slate-100/90 px-1.5 py-0.5 rounded border border-slate-200 w-fit">
+                          <Key className="w-2.5 h-2.5 text-slate-500" />
+                          <span>{item.loginUsername || item.code.toLowerCase().replace(/-/g, '_')}</span>
+                        </div>
+                        <span className={'inline-block text-[9px] font-bold px-1.5 py-0.2 rounded ' + (item.loginStatus === 'ACTIVE' ? 'text-emerald-700 bg-emerald-50' : 'text-slate-600 bg-slate-100')}>
+                          {item.loginStatus === 'ACTIVE' ? 'Active Account' : 'Inactive Account'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* 7. Status */}
+                    <td className="py-2.5 px-3.5 align-top text-center">
+                      <span
+                        className={'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold ' + (
+                          item.status === 'ACTIVE'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                            : item.status === 'ARCHIVED'
+                            ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200/80'
+                        )}
+                      >
+                        <span
+                          className={'w-1.5 h-1.5 rounded-full ' + (
+                            item.status === 'ACTIVE' ? 'bg-emerald-500' : item.status === 'ARCHIVED' ? 'bg-slate-400' : 'bg-rose-500'
+                          )}
+                        />
+                        {item.status}
+                      </span>
+                    </td>
+
+                    {/* 8. Actions */}
+                    <td className="py-2.5 px-3.5 align-top text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenDetail(item)}
+                          className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                          title="View Details & Audit Trail"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenEdit(item)}
+                          className="p-1 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          title="Edit Region"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenToggle(item, item.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')}
+                          className={'p-1 rounded transition-colors ' + (
+                            item.status === 'ACTIVE'
+                              ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                              : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                          )}
+                          title={item.status === 'ACTIVE' ? 'Deactivate Region' : 'Activate Region'}
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* CREATE / EDIT REGION MODAL */}
+      {/* 5. CREATE / EDIT MODAL */}
       <Modal
         isOpen={isFormOpen}
-        onClose={() => setIsFormOpen(false)}
-        title={editingItem ? `Edit Region: ${editingItem.name}` : 'Establish New Region'}
-        maxWidth="2xl"
+        onClose={handleCloseForm}
+        title={editingItem ? 'Edit Region — ' + editingItem.name : 'Add New Region'}
+        maxWidth="lg"
       >
-        <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
-          {/* Section 1: Parent Hierarchy & Identification */}
-          <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-              <span className="text-2xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                1. Hierarchy Attachment &amp; Regional Identity
-              </span>
-              <span className="text-3xs font-semibold text-slate-500">Tier 2 Division</span>
+        <form onSubmit={handleSave} className="space-y-4 max-h-[82vh] overflow-y-auto pr-1">
+          {/* SECTION 1: PARENT & BASIC INFORMATION */}
+          <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/90 space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
+              <Building2 className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                1. Parent & Basic Information
+              </h3>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Parent Head Office Selection */}
+              {/* Mandatory Parent Head Office */}
               <div className="sm:col-span-2">
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Parent Head Office <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={formData.headOfficeId}
-                  onChange={(e) => setFormData({ ...formData, headOfficeId: e.target.value })}
-                  className={`w-full text-xs bg-white border rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
-                    formErrors.headOfficeId ? 'border-rose-300' : 'border-slate-300'
-                  }`}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, headOfficeId: e.target.value }))}
+                  className={'w-full text-xs font-semibold bg-white border rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                    formErrors.headOfficeId ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                  )}
                 >
-                  <option value="">-- Select Parent Executive Head Office --</option>
-                  {stats.availableHeadOffices.map((ho) => (
+                  <option value="">-- Select Parent Head Office --</option>
+                  {headOfficesList.map((ho) => (
                     <option key={ho.id} value={ho.id}>
-                      {ho.name} [{ho.code}] — {ho.city} {ho.status !== 'ACTIVE' ? '(' + ho.status + ')' : ''}
+                      {ho.name} ({ho.code}) {ho.status !== 'ACTIVE' ? '[' + ho.status + ']' : ''}
                     </option>
                   ))}
                 </select>
-                {formErrors.headOfficeId && (
-                  <p className="text-3xs text-rose-500 mt-0.5">{formErrors.headOfficeId}</p>
+                {formErrors.headOfficeId ? (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.headOfficeId}</p>
+                ) : (
+                  <p className="text-3xs text-slate-500 mt-1">
+                    Every region is strictly subordinate to its parent governing Head Office.
+                  </p>
                 )}
               </div>
 
               {/* Region Name */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Region Official Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. Southern Sindh & Karachi Region"
-                  className={`w-full text-xs bg-white border rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
-                    formErrors.name ? 'border-rose-300' : 'border-slate-300'
-                  }`}
-                />
-                {formErrors.name && <p className="text-3xs text-rose-500 mt-0.5">{formErrors.name}</p>}
-              </div>
-
-              {/* Short Name */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Short Acronym / Alias
-                </label>
-                <input
-                  type="text"
-                  value={formData.shortName}
-                  onChange={(e) => setFormData({ ...formData, shortName: e.target.value.toUpperCase() })}
-                  placeholder="e.g. SSK-REG"
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-
-              {/* System Code Generator */}
               <div className="sm:col-span-2">
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Region Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Southern Sindh & Karachi Region"
+                  value={formData.name}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  className={'w-full text-xs font-semibold bg-white border rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                    formErrors.name ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                  )}
+                />
+                {formErrors.name && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.name}</p>
+                )}
+              </div>
+
+              {/* Region Code with Lock/Unlock */}
+              <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider">
+                  <label className="text-2xs font-bold text-slate-700 uppercase tracking-wider">
                     Region Code <span className="text-rose-500">*</span>
                   </label>
                   <button
                     type="button"
                     onClick={() => setIsCodeLocked(!isCodeLocked)}
-                    className="text-3xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                    className="text-3xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
                   >
-                    {isCodeLocked ? (
-                      <>
-                        <Lock className="w-3 h-3" /> System Auto-Generated (Click to Override)
-                      </>
-                    ) : (
-                      <>
-                        <Unlock className="w-3 h-3" /> Manual Override Mode (Click to Lock)
-                      </>
-                    )}
+                    {isCodeLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                    <span>{isCodeLocked ? 'Auto (Unlock)' : 'Manual Override'}</span>
                   </button>
                 </div>
                 <input
                   type="text"
+                  placeholder="e.g. REG-KHI-001"
                   value={formData.code}
                   readOnly={isCodeLocked && !editingItem}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                  placeholder="e.g. REG-KHI-001"
-                  className={`w-full text-xs border rounded-lg p-2 font-mono uppercase font-bold focus:outline-none ${
-                    isCodeLocked && !editingItem
-                      ? 'bg-slate-100 text-slate-700 border-slate-200 cursor-not-allowed'
-                      : 'bg-white text-slate-900 border-emerald-400 focus:ring-2 focus:ring-emerald-500/20'
-                  } ${formErrors.code ? 'border-rose-300' : ''}`}
+                  onChange={(e) => {
+                    const val = e.target.value.toUpperCase();
+                    setFormData((prev) => ({
+                      ...prev,
+                      code: val,
+                      loginUsername: prev.loginUsername || val.toLowerCase().replace(/-/g, '_'),
+                    }));
+                  }}
+                  className={'w-full text-xs font-mono font-bold uppercase rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                    isCodeLocked && !editingItem ? 'bg-slate-100 border-slate-200 text-slate-600 cursor-not-allowed' : 'bg-white border-slate-300'
+                  ) + ' ' + (formErrors.code ? 'border-rose-400 ring-1 ring-rose-300' : '')}
                 />
-                {formErrors.code && <p className="text-3xs text-rose-500 mt-0.5">{formErrors.code}</p>}
+                {formErrors.code && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.code}</p>
+                )}
+              </div>
+
+              {/* Registration / Reference No. */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Registration / Ref No. <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. REG-REG-001"
+                  value={formData.registrationNo}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, registrationNo: e.target.value }))}
+                  className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                />
               </div>
             </div>
           </div>
 
-          {/* Section 2: Global Location Reference Cascade */}
-          <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-              <span className="text-2xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                2. Geographic Location &amp; Regional Hub Address
-              </span>
-              <span className="text-3xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
-                Cascading Reference Masters
-              </span>
+          {/* SECTION 2: LOCATION & ADDRESS */}
+          <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/90 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  2. Location & Address
+                </h3>
+              </div>
+
+              {/* Master vs Manual Mode Toggle */}
+              <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setLocationMode('MASTER')}
+                  className={'text-3xs font-bold px-2 py-1 rounded-md transition-all ' + (
+                    locationMode === 'MASTER'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  )}
+                >
+                  Reference Master
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLocationMode('MANUAL')}
+                  className={'text-3xs font-bold px-2 py-1 rounded-md transition-all ' + (
+                    locationMode === 'MANUAL'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  )}
+                >
+                  Manual / Free Text
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Country */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Country
-                </label>
-                <select
-                  value={formData.countryId}
-                  onChange={(e) => handleCountryChange(e.target.value)}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                >
-                  <option value="">-- Select Country --</option>
-                  {countries.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.isoCode})
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {locationMode === 'MASTER' ? (
+              /* Reference Master Cascading Dropdowns */
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Country <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.countryId}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                  >
+                    <option value="">Select Country...</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.phoneCallingCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* State / Province */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Province / State
-                </label>
-                <select
-                  value={formData.stateId}
-                  onChange={(e) => handleStateChange(e.target.value)}
-                  disabled={!formData.countryId}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  <option value="">-- Select Province/State --</option>
-                  {states.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    State / Province
+                  </label>
+                  <select
+                    value={formData.stateId}
+                    onChange={(e) => handleStateChange(e.target.value)}
+                    disabled={!formData.countryId || states.length === 0}
+                    className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">Select State...</option>
+                    {states.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* City */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Principal City
-                </label>
-                <select
-                  value={formData.cityId}
-                  onChange={(e) => handleCityChange(e.target.value)}
-                  disabled={!formData.stateId}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  <option value="">-- Select City --</option>
-                  {cities.map((ct) => (
-                    <option key={ct.id} value={ct.id}>
-                      {ct.name} ({ct.code})
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    City <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.cityId}
+                    onChange={(e) => handleCityChange(e.target.value)}
+                    disabled={!formData.stateId || cities.length === 0}
+                    className={'w-full text-xs font-medium bg-white border rounded-lg px-2.5 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 ' + (
+                      formErrors.city ? 'border-rose-400' : 'border-slate-300'
+                    )}
+                  >
+                    <option value="">Select City...</option>
+                    {cities.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {formErrors.city && (
+                    <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.city}</p>
+                  )}
+                </div>
               </div>
+            ) : (
+              /* Manual / Free Text Inputs */
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Country <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Pakistan"
+                    value={formData.country}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
+                    className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                  />
+                </div>
 
-              {/* Address Line 1 */}
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    State / Province
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sindh"
+                    value={formData.state}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, state: e.target.value }))}
+                    className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    City <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Karachi"
+                    value={formData.city}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
+                    className={'w-full text-xs font-medium bg-white border rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                      formErrors.city ? 'border-rose-400' : 'border-slate-300'
+                    )}
+                  />
+                  {formErrors.city && (
+                    <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.city}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Address Lines */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
               <div className="sm:col-span-2">
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Regional Office Address Line 1
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Address Line 1 <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={formData.addressLine1}
-                  onChange={(e) => setFormData({ ...formData, addressLine1: e.target.value })}
                   placeholder="e.g. Regional Operations Hub, Suite 201, Main Shahrah-e-Faisal"
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  value={formData.addressLine1}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, addressLine1: e.target.value }))}
+                  className={'w-full text-xs font-medium bg-white border rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                    formErrors.addressLine1 ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                  )}
                 />
+                {formErrors.addressLine1 && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.addressLine1}</p>
+                )}
               </div>
 
-              {/* Postal Code */}
               <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Postal / ZIP Code
                 </label>
                 <input
                   type="text"
-                  value={formData.postalCode}
-                  onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
                   placeholder="e.g. 75400"
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  value={formData.postalCode}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
+                  className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Section 3: Jurisdiction & Coverage */}
-          <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-              <span className="text-2xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <Map className="w-3.5 h-3.5 text-emerald-600" />
-                3. Jurisdiction &amp; Territorial Coverage
-              </span>
-              <span className="text-3xs font-semibold text-slate-500">Multi-District Oversight</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Covered Districts / Zones (Comma-Separated)
-                  Coverage Areas / Districts (Optional)
+              <div className="sm:col-span-3">
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Address Line 2 <span className="text-slate-400 font-normal">(Optional Floor, Suite, Wing)</span>
                 </label>
                 <input
                   type="text"
-                  value={formData.coveredDistricts}
-                  onChange={(e) => setFormData({ ...formData, coveredDistricts: e.target.value })}
-                  placeholder="e.g. Karachi South, Karachi East, Karachi Central, Malir, Korangi, Thatta"
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Jurisdictional Scope &amp; Operational Notes
-                </label>
-                <textarea
-                  value={formData.coverageNotes}
-                  onChange={(e) => setFormData({ ...formData, coverageNotes: e.target.value })}
-                  rows={2}
-                  placeholder="Describe operational purview, school clusters overseen, and administrative authority..."
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                  placeholder="e.g. South Wing, 2nd Floor"
+                  value={formData.addressLine2}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, addressLine2: e.target.value }))}
+                  className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
                 />
               </div>
             </div>
           </div>
 
-          {/* Section 4: Leadership & Personnel */}
-          <div className="bg-slate-50/70 p-3.5 rounded-xl border border-slate-200/80 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-              <span className="text-2xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-emerald-600" />
-                4. Regional Leadership &amp; Operational Contacts
-              </span>
-              <span className="text-3xs font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
-                HR Personnel Lookup
-              </span>
+          {/* SECTION 3: CONTACT INFORMATION */}
+          <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/90 space-y-3">
+            <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2">
+              <Phone className="w-4 h-4 text-indigo-600" />
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                3. Contact Information
+              </h3>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Regional Director */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Regional Director (HR Employee)
-                </label>
-                <select
-                  value={formData.directorEmployeeId}
-                  onChange={(e) => {
-                    const emp = employees.find((em) => em.id === e.target.value);
-                    setFormData({
-                      ...formData,
-                      directorEmployeeId: e.target.value,
-                      directorName: emp ? (emp.fullName + ' (' + (emp.designation || 'Director') + ')') : formData.directorName,
-                    });
-                  }}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                >
-                  <option value="">-- Select Active Employee from HR --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      [{emp.employeeNo}] {emp.fullName} — {emp.designation || 'Staff'} ({emp.department || 'General'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Administrative Contact */}
-              <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Administrative Coordinator (HR Employee)
-                </label>
-                <select
-                  value={formData.adminContactEmployeeId}
-                  onChange={(e) => {
-                    const emp = employees.find((em) => em.id === e.target.value);
-                    setFormData({
-                      ...formData,
-                      adminContactEmployeeId: e.target.value,
-                      adminContact: emp ? (emp.fullName + ' (' + (emp.designation || 'Coordinator') + ')') : formData.adminContact,
-                    });
-                  }}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                >
-                  <option value="">-- Select Active Employee from HR --</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      [{emp.employeeNo}] {emp.fullName} — {emp.designation || 'Staff'} ({emp.department || 'General'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               {/* Official Phone */}
               <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Official Contact Phone ({activeCallingCode})
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Official Phone <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative flex items-center">
-                  <span className="absolute left-2 text-2xs font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                  <span className="absolute left-3 text-xs font-bold text-indigo-700 bg-indigo-50/80 px-1.5 py-0.5 rounded border border-indigo-200/80">
                     {activeCallingCode}
                   </span>
                   <input
                     type="text"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     placeholder="21 34567800"
-                    className="w-full text-xs bg-white border border-slate-300 rounded-lg py-2 pl-14 pr-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                    value={formData.phone}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                    className={'w-full text-xs font-medium bg-white border rounded-lg pl-16 pr-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                      formErrors.phone ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                    )}
+                  />
+                </div>
+                {formErrors.phone && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.phone}</p>
+                )}
+              </div>
+
+              {/* Alternate Phone */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Alternate / Mobile Phone <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-xs font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                    {activeCallingCode}
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="300 1234567"
+                    value={formData.altPhone}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, altPhone: e.target.value }))}
+                    className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg pl-16 pr-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
                   />
                 </div>
               </div>
 
               {/* Official Email */}
               <div>
-                <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Official Regional Email
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Official Email <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="email"
+                  placeholder="e.g. region.south@greenwood.edu.pk"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="region.south@greenwood.edu.pk"
-                  className={`w-full text-xs bg-white border rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${
-                    formErrors.email ? 'border-rose-300' : 'border-slate-300'
-                  }`}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                  className={'w-full text-xs font-medium bg-white border rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                    formErrors.email ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                  )}
                 />
-                {formErrors.email && <p className="text-3xs text-rose-500 mt-0.5">{formErrors.email}</p>}
+                {formErrors.email && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.email}</p>
+                )}
+              </div>
+
+              {/* Official Website */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Official Website <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. https://greenwood.edu.pk/regions/south"
+                  value={formData.website}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
+                  className="w-full text-xs font-medium bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                />
               </div>
             </div>
           </div>
 
-          {/* Status & Remarks */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Regional Status
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              >
-                <option value="ACTIVE">ACTIVE (Operational)</option>
-                <option value="INACTIVE">INACTIVE (Temporarily Suspended)</option>
-                <option value="ARCHIVED">ARCHIVED (Decommissioned)</option>
-              </select>
+          {/* SECTION 4: DOCUMENTS & BRANDING (OPTIONAL) */}
+          <div className="p-3.5 bg-slate-50/70 rounded-xl border border-slate-200/90 space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  4. Documents & Branding (Optional)
+                </h3>
+              </div>
+              <span className="text-[10px] font-semibold text-slate-400">PNG, JPG up to 2MB</span>
             </div>
 
-            <div>
-              <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Remarks / Governing Notes
-              </label>
-              <input
-                type="text"
-                value={formData.remarks}
-                onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                placeholder="Optional administrative remarks..."
-                className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Region Logo */}
+              <FileUploadBox
+                label="Region Logo"
+                assetType="logo"
+                currentUrl={formData.logoUrl}
+                icon={ImageIcon}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, logoUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, logoUrl: null }))}
+              />
+
+              {/* Authorized Signature */}
+              <FileUploadBox
+                label="Authorized Signature"
+                assetType="signature"
+                currentUrl={formData.signatureUrl}
+                icon={FileSignature}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, signatureUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, signatureUrl: null }))}
+              />
+
+              {/* Official Stamp / Seal */}
+              <FileUploadBox
+                label="Official Stamp / Seal"
+                assetType="stamp"
+                currentUrl={formData.stampUrl}
+                icon={Stamp}
+                onUploadSuccess={(url) => setFormData((prev) => ({ ...prev, stampUrl: url }))}
+                onRemove={() => setFormData((prev) => ({ ...prev, stampUrl: null }))}
               />
             </div>
           </div>
 
-          {/* Form Actions */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          {/* SECTION 5: LOGIN ACCESS */}
+          <div className="p-3.5 bg-linear-to-br from-indigo-50/60 via-slate-50/70 to-indigo-50/40 rounded-xl border border-indigo-200/90 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-indigo-100 pb-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-indigo-700" />
+                <h3 className="text-xs font-bold text-indigo-950 uppercase tracking-wider">
+                  5. Login Access & Credentials
+                </h3>
+              </div>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                {editingItem ? 'Edit Security' : 'Initial Setup'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Login ID / Username */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Login ID / Username <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative flex items-center">
+                  <Key className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
+                  <input
+                    type="text"
+                    placeholder="e.g. reg_khi_001"
+                    value={formData.loginUsername}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, loginUsername: e.target.value.toLowerCase() }))}
+                    className={'w-full text-xs font-mono font-bold bg-white border rounded-lg pl-8.5 pr-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                      formErrors.loginUsername ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                    )}
+                  />
+                </div>
+                {formErrors.loginUsername && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.loginUsername}</p>
+                )}
+              </div>
+
+              {/* Account Status */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Account Status <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={formData.loginStatus}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, loginStatus: e.target.value as 'ACTIVE' | 'INACTIVE' }))}
+                  className="w-full text-xs font-semibold bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
+                >
+                  <option value="ACTIVE">Active (Permits Region Access)</option>
+                  <option value="INACTIVE">Inactive (Suspended Access)</option>
+                </select>
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  {editingItem ? 'New Password' : 'Password'} <span className={editingItem ? 'text-slate-400 font-normal' : 'text-rose-500'}>{editingItem ? '(Leave blank to keep current)' : '*'}</span>
+                </label>
+                <div className="relative flex items-center">
+                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
+                  <input
+                    type="password"
+                    placeholder={editingItem ? '•••••••• Leave blank to keep unchanged' : 'Minimum 8 characters'}
+                    value={formData.loginPassword}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, loginPassword: e.target.value }))}
+                    className={'w-full text-xs bg-white border rounded-lg pl-8.5 pr-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                      formErrors.loginPassword ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                    )}
+                  />
+                </div>
+                {formErrors.loginPassword && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.loginPassword}</p>
+                )}
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Confirm Password <span className={editingItem ? 'text-slate-400 font-normal' : 'text-rose-500'}>{editingItem ? '(If changing password)' : '*'}</span>
+                </label>
+                <div className="relative flex items-center">
+                  <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3" />
+                  <input
+                    type="password"
+                    placeholder={editingItem ? 'Confirm new password' : 'Repeat password'}
+                    value={formData.confirmPassword}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    className={'w-full text-xs bg-white border rounded-lg pl-8.5 pr-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 ' + (
+                      formErrors.confirmPassword ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                    )}
+                  />
+                </div>
+                {formErrors.confirmPassword && (
+                  <p className="text-3xs text-rose-500 font-semibold mt-1">{formErrors.confirmPassword}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* FORM ACTIONS */}
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setIsFormOpen(false)}
-              className="text-xs"
+              onClick={handleCloseForm}
+              disabled={isSaving}
+              className="text-xs font-semibold px-4 border-slate-200 hover:bg-slate-50"
             >
               Cancel
             </Button>
+
             <Button
               type="submit"
               size="sm"
-              disabled={isSubmitting}
-              className="text-xs font-semibold px-4 bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={isSaving}
+              className="text-xs font-bold px-5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs gap-1.5"
             >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Saving...
-                </>
-              ) : editingItem ? (
-                'Update Region'
-              ) : (
-                'Create Region'
-              )}
+              {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              <span>{editingItem ? 'Update Region' : 'Save Region'}</span>
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* DETAIL / AUDIT MODAL */}
+      {/* 6. DETAIL DRAWER MODAL */}
       <Modal
-        isOpen={!!detailItem}
+        isOpen={Boolean(detailItem)}
         onClose={() => setDetailItem(null)}
-        title={detailItem ? ('Region Overview: ' + detailItem.name) : ''}
-        maxWidth="2xl"
+        title={detailItem ? detailItem.name : 'Region Profile'}
+        maxWidth="lg"
       >
         {detailItem && (
-          <div className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
-            {/* Tab selector */}
-            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+          <div className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+            {/* Drawer Tab Switch */}
+            <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2">
               <button
+                type="button"
                 onClick={() => setDetailTab('OVERVIEW')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={'text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ' + (
                   detailTab === 'OVERVIEW'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                )}
               >
-                Overview &amp; Hierarchy
+                <Compass className="w-3.5 h-3.5" />
+                <span>Overview & Branding</span>
               </button>
+
               <button
+                type="button"
                 onClick={() => setDetailTab('AUDIT')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={'text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ' + (
                   detailTab === 'AUDIT'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                )}
               >
-                Audit Trail ({auditLogs.length})
+                <History className="w-3.5 h-3.5" />
+                <span>Audit Trail</span>
               </button>
             </div>
 
             {detailTab === 'OVERVIEW' ? (
-              <div className="space-y-3 text-xs">
-                {/* Hierarchy Breadcrumb Banner */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <span className="text-3xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Organizational Hierarchy Path
-                  </span>
-                  <div className="flex items-center gap-2 text-2xs font-semibold text-slate-700">
-                    <span className="text-slate-500">Organization (Hidden Root)</span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60 font-bold">
-                      {detailItem.headOffice?.name || 'Head Office'} [{detailItem.headOffice?.code}]
-                    </span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 font-bold">
-                      {detailItem.name} [{detailItem.code}]
-                    </span>
-                    <span className="text-slate-400">&rarr;</span>
-                    <span className="text-slate-400 italic">Branches / Schools (Tier 3)</span>
+              <div className="space-y-3.5 text-xs">
+                {/* Header Card with Logo Preview */}
+                <div className="p-3.5 bg-indigo-50/60 rounded-xl border border-indigo-100 flex items-start gap-3">
+                  {detailItem.logoUrl ? (
+                    <div className="w-14 h-14 rounded-xl bg-white border border-indigo-200 flex items-center justify-center p-1 shrink-0 overflow-hidden shadow-2xs">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={detailItem.logoUrl} alt={detailItem.name} className="w-full h-full object-contain" />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                      <Compass className="w-7 h-7" />
+                    </div>
+                  )}
+                  <div className="space-y-1 min-w-0">
+                    <h4 className="font-bold text-slate-900 text-sm leading-snug">{detailItem.name}</h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-3xs font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                        {detailItem.code}
+                      </span>
+                      {detailItem.registrationNo && (
+                        <span className="text-3xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          Ref: {detailItem.registrationNo}
+                        </span>
+                      )}
+                      <span
+                        className={'text-3xs font-bold px-2 py-0.5 rounded-full ' + (
+                          detailItem.status === 'ACTIVE'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        )}
+                      >
+                        {detailItem.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Details Grid */}
-                <div className="grid grid-cols-2 gap-3 bg-white p-3 rounded-xl border border-slate-200">
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Region Code</span>
-                    <span className="font-mono font-bold text-emerald-800">{detailItem.code}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Short Name / Alias</span>
-                    <span className="font-semibold text-slate-700">{detailItem.shortName || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Location</span>
-                    <span className="font-medium text-slate-700">
-                      {detailItem.city}, {detailItem.state}, {detailItem.country}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Regional Address</span>
-                    <span className="font-medium text-slate-700">{detailItem.addressLine1 || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Official Phone</span>
-                    <span className="font-medium text-slate-700">{detailItem.phone || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Official Email</span>
-                    <span className="font-medium text-slate-700">{detailItem.email || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Regional Director</span>
-                    <span className="font-medium text-slate-700">{detailItem.directorName || 'Unassigned'}</span>
-                  </div>
-                  <div>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Administrative Contact</span>
-                    <span className="font-medium text-slate-700">{detailItem.adminContact || 'Unassigned'}</span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Covered Districts</span>
-                    <span className="font-medium text-slate-800">{detailItem.coveredDistricts || 'All municipal districts'}</span>
-                    <span className="text-3xs font-bold text-slate-400 uppercase block">Coverage Areas / Districts</span>
-                    <span className="font-medium text-slate-800">{detailItem.coveredDistricts || 'All municipal districts / areas'}</span>
-                  </div>
-                  {detailItem.coverageNotes && (
-                    <div className="col-span-2">
-                      <span className="text-3xs font-bold text-slate-400 uppercase block">Coverage &amp; Purview Notes</span>
-                      <span className="font-medium text-slate-700">{detailItem.coverageNotes}</span>
+                {/* Parent Head Office Section */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-1.5">
+                  <span className="text-3xs font-bold text-slate-500 uppercase tracking-wider">
+                    Parent Governing Head Office
+                  </span>
+                  {detailItem.headOffice ? (
+                    <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-200">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-indigo-600" />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{detailItem.headOffice.name}</p>
+                          <p className="text-3xs text-slate-500 font-mono">Code: {detailItem.headOffice.code} • City: {detailItem.headOffice.city}</p>
+                        </div>
+                      </div>
+                      <span className="text-3xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        {detailItem.headOffice.status}
+                      </span>
                     </div>
+                  ) : (
+                    <p className="text-xs font-semibold text-rose-600">No Parent Head Office assigned.</p>
                   )}
-                  {detailItem.remarks && (
-                    <div className="col-span-2">
-                      <span className="text-3xs font-bold text-slate-400 uppercase block">Administrative Remarks</span>
-                      <span className="font-medium text-slate-700">{detailItem.remarks}</span>
+                </div>
+
+                {/* Geographic Location & Address */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-2">
+                  <span className="text-3xs font-bold text-slate-500 uppercase tracking-wider">
+                    Geographic Location & Address
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-2xs">
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">City & State</span>
+                      <span className="font-bold text-slate-800">
+                        {detailItem.city || 'Karachi'}, {detailItem.state || 'Sindh'}
+                      </span>
                     </div>
-                  )}
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Country</span>
+                      <span className="font-bold text-slate-800">{detailItem.country || 'Pakistan'}</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-slate-400 block text-3xs font-semibold">Primary Address</span>
+                      <span className="font-semibold text-slate-800">
+                        {detailItem.addressLine1}
+                        {detailItem.addressLine2 ? ', ' + detailItem.addressLine2 : ''}
+                        {detailItem.postalCode ? ' - ' + detailItem.postalCode : ''}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Official Contact */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-2">
+                  <span className="text-3xs font-bold text-slate-500 uppercase tracking-wider">
+                    Official Contact Channels
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-2xs">
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Official Phone</span>
+                      <span className="font-bold text-slate-800">{detailItem.phone || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Alternate / Mobile Phone</span>
+                      <span className="font-semibold text-slate-700">{detailItem.altPhone || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Official Email</span>
+                      <span className="font-bold text-indigo-600">{detailItem.email || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Official Website</span>
+                      {detailItem.website ? (
+                        <a
+                          href={detailItem.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-bold text-indigo-600 hover:underline inline-flex items-center gap-1"
+                        >
+                          <span>{detailItem.website}</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Documents & Signatures Preview */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-200/90 space-y-2">
+                  <span className="text-3xs font-bold text-slate-500 uppercase tracking-wider">
+                    Document & Branding Assets
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center space-y-1">
+                      <span className="text-[10px] font-bold text-slate-500 block">Region Logo</span>
+                      {detailItem.logoUrl ? (
+                        <div className="w-16 h-16 mx-auto rounded-md bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={detailItem.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                        </div>
+                      ) : (
+                        <span className="text-3xs text-slate-400 italic block py-4">Not Uploaded</span>
+                      )}
+                    </div>
+
+                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center space-y-1">
+                      <span className="text-[10px] font-bold text-slate-500 block">Authorized Signature</span>
+                      {detailItem.signatureUrl ? (
+                        <div className="w-16 h-16 mx-auto rounded-md bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={detailItem.signatureUrl} alt="Signature" className="w-full h-full object-contain" />
+                        </div>
+                      ) : (
+                        <span className="text-3xs text-slate-400 italic block py-4">Not Uploaded</span>
+                      )}
+                    </div>
+
+                    <div className="bg-white p-2 rounded-lg border border-slate-200 text-center space-y-1">
+                      <span className="text-[10px] font-bold text-slate-500 block">Official Stamp / Seal</span>
+                      {detailItem.stampUrl ? (
+                        <div className="w-16 h-16 mx-auto rounded-md bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={detailItem.stampUrl} alt="Stamp" className="w-full h-full object-contain" />
+                        </div>
+                      ) : (
+                        <span className="text-3xs text-slate-400 italic block py-4">Not Uploaded</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Login Access Credentials */}
+                <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 space-y-2">
+                  <span className="text-3xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-700" />
+                    <span>Login Access Account</span>
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-2xs">
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Login ID / Username</span>
+                      <span className="font-mono font-bold text-slate-800">
+                        {detailItem.loginUsername || detailItem.code.toLowerCase().replace(/-/g, '_')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-3xs font-semibold">Account Status</span>
+                      <span className="font-bold text-emerald-700">
+                        {detailItem.loginStatus || detailItem.status}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              /* AUDIT TAB */
+              <div className="space-y-2 text-xs">
                 {isLoadingAudit ? (
                   <div className="py-8 text-center text-slate-400">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-emerald-600" />
-                    Loading audit trail...
+                    <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-indigo-500" />
+                    <span>Loading audit records...</span>
                   </div>
                 ) : auditLogs.length === 0 ? (
-                  <div className="py-8 text-center text-slate-400">
-                    <History className="w-6 h-6 mx-auto mb-1 text-slate-300" />
-                    No audit records logged yet.
-                  </div>
+                  <p className="text-center py-8 text-slate-400 italic">No audit logs recorded yet.</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-2xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 font-bold uppercase">
-                          <th className="py-2 px-3">Timestamp</th>
-                          <th className="py-2 px-3">Action</th>
-                          <th className="py-2 px-3">Summary</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {auditLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 whitespace-nowrap text-slate-500">
-                              {new Date(log.timestamp).toLocaleString()}
-                            </td>
-                            <td className="py-2 px-3">
-                              <span className="font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">
-                                {log.action}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 text-slate-700">{log.changeSummary || 'N/A'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  auditLogs.map((log) => (
+                    <div key={log.id} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between text-2xs">
+                        <span className="font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
+                          {log.action}
+                        </span>
+                        <span className="text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-800">{log.changeSummary || 'Action logged'}</p>
+                    </div>
+                  ))
                 )}
               </div>
             )}
@@ -1586,72 +2083,58 @@ export function RegionsView() {
         )}
       </Modal>
 
-      {/* STATUS TOGGLE / ARCHIVE MODAL */}
+      {/* 7. STATUS TOGGLE CONFIRMATION MODAL */}
       <Modal
-        isOpen={!!toggleItem}
+        isOpen={Boolean(toggleItem)}
         onClose={() => setToggleItem(null)}
-        title={toggleItem ? ('Update Status: ' + toggleItem.name) : ''}
-        maxWidth="md"
+        title={targetStatus === 'ACTIVE' ? 'Activate Region' : 'Deactivate Region'}
+        maxWidth="sm"
       >
         {toggleItem && (
-          <div className="p-4 space-y-3 text-xs">
-            <p className="text-slate-600">
-              Select the desired operational status for Region{' '}
-              <span className="font-bold text-slate-900">{toggleItem.name}</span> [
-              <span className="font-mono text-emerald-700">{toggleItem.code}</span>]:
+          <div className="space-y-3.5 text-xs">
+            <p className="text-slate-700">
+              Are you sure you want to change the operational status of{' '}
+              <span className="font-bold text-slate-900">{toggleItem.name}</span> to{' '}
+              <span className={'font-bold ' + (targetStatus === 'ACTIVE' ? 'text-emerald-600' : 'text-rose-600')}>
+                {targetStatus}
+              </span>
+              ?
             </p>
 
-            <div className="space-y-2">
-              <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider">
-                Target Status
-              </label>
-              <select
-                value={targetStatus}
-                onChange={(e) => setTargetStatus(e.target.value as any)}
-                className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              >
-                <option value="ACTIVE">ACTIVE (Operational)</option>
-                <option value="INACTIVE">INACTIVE (Temporarily Suspended)</option>
-                <option value="ARCHIVED">ARCHIVED (Decommissioned)</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="block text-3xs font-bold text-slate-700 uppercase tracking-wider">
-                Reason for Status Change (Optional)
+            <div>
+              <label className="block text-2xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Reason for Status Change <span className="text-slate-400 font-normal">(Optional audit note)</span>
               </label>
               <textarea
+                rows={2}
+                placeholder="e.g. Scheduled administrative reorganization..."
                 value={toggleReason}
                 onChange={(e) => setToggleReason(e.target.value)}
-                rows={2}
-                placeholder="Provide reason for activation, suspension, or archiving..."
-                className="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-1.5 focus:ring-indigo-500"
               />
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setToggleItem(null)}
-                className="text-xs"
+                disabled={isToggling}
+                className="text-xs font-semibold"
               >
                 Cancel
               </Button>
               <Button
+                type="button"
                 size="sm"
-                onClick={handleToggleStatus}
+                onClick={handleConfirmToggle}
                 disabled={isToggling}
-                className="text-xs font-semibold px-4 bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {isToggling ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    Updating...
-                  </>
-                ) : (
-                  'Confirm Status Change'
+                className={'text-xs font-bold px-4 text-white ' + (
+                  targetStatus === 'ACTIVE' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'
                 )}
+              >
+                {isToggling ? 'Updating...' : 'Confirm'}
               </Button>
             </div>
           </div>

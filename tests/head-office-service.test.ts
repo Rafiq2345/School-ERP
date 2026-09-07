@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HeadOfficeService } from '../src/lib/services/head-office-service';
 import { prisma } from '../src/lib/db/prisma';
+import * as passwordModule from '../src/lib/auth/password';
+
+vi.mock('../src/lib/auth/password', () => ({
+  hashPassword: vi.fn().mockImplementation(async (pw: string) => `hashed_${pw}`),
+  verifyPassword: vi.fn().mockImplementation(async (pw: string, hash: string) => hash === `hashed_${pw}`),
+}));
 
 vi.mock('../src/lib/db/prisma', () => {
   const mockPrisma = {
@@ -53,6 +59,17 @@ vi.mock('../src/lib/db/prisma', () => {
       findMany: vi.fn(),
       create: vi.fn(),
     },
+    user: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    role: {
+      findFirst: vi.fn(),
+    },
+    userRole: {
+      create: vi.fn(),
+    },
   };
 
   return { prisma: mockPrisma };
@@ -65,6 +82,8 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.country.count).mockResolvedValue(1);
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.headOffice.findUnique).mockResolvedValue(null);
   });
 
   describe('ensureDefaultHeadOffice', () => {
@@ -95,7 +114,7 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
         id: 'ho-default-01',
         tenantId: mockTenantId,
         name: 'Greenwood International School — Central Head Office',
-        code: 'HO-KHI',
+        code: 'HO-KHI-001',
         shortName: 'KHI-HO',
         registrationNo: 'REG-1234',
         addressLine1: 'Karachi Campus',
@@ -122,7 +141,7 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
 
       const result = await HeadOfficeService.ensureDefaultHeadOffice(mockTenantId, mockUserId);
       expect(result).not.toBeNull();
-      expect(result?.code).toBe('HO-KHI');
+      expect(result?.code).toBe('HO-KHI-001');
       expect(prisma.headOffice.create).toHaveBeenCalledTimes(1);
     });
 
@@ -155,6 +174,9 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
           altPhone: null,
           email: 'headoffice@greenwood.edu.pk',
           website: 'https://greenwood.edu.pk',
+          logoUrl: '/uploads/ho-logo.png',
+          signatureUrl: '/uploads/ho-sig.png',
+          stampUrl: '/uploads/ho-stamp.png',
           directorName: 'Prof. Dr. Tariq Mansoor',
           adminContact: 'Muhammad Irfan',
           timezone: 'Asia/Karachi',
@@ -181,6 +203,9 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
           altPhone: null,
           email: 'lhr.headoffice@greenwood.edu.pk',
           website: null,
+          logoUrl: null,
+          signatureUrl: null,
+          stampUrl: null,
           directorName: 'Dr. Salman Qazi',
           adminContact: 'Tariq Mehmood',
           timezone: 'Asia/Karachi',
@@ -205,12 +230,18 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
       expect(result.stats.active).toBe(2);
       expect(result.stats.inactive).toBe(0);
       expect(result.stats.citiesCount).toBe(2);
+      expect(result.items[0].logoUrl).toBe('/uploads/ho-logo.png');
+      expect(result.items[0].loginUsername).toBe('ho_khi');
     });
   });
 
   describe('createHeadOffice', () => {
-    it('should create head office with uppercase code and valid data', async () => {
+    it('should create head office with branding assets and linked login user', async () => {
       vi.mocked(prisma.headOffice.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.user.create).mockResolvedValue({ id: 'usr-ho-isb' } as any);
+      vi.mocked(prisma.role.findFirst).mockResolvedValue({ id: 'role-superadmin', code: 'SUPER_ADMIN' } as any);
+      vi.mocked(prisma.userRole.create).mockResolvedValue({ id: 'ur-1' } as any);
 
       const input = {
         name: 'Islamabad Federal Head Office',
@@ -222,6 +253,12 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
         country: 'Pakistan',
         phone: '+92 51 2345678',
         email: 'isb@greenwood.edu.pk',
+        logoUrl: '/uploads/isb-logo.png',
+        signatureUrl: '/uploads/isb-sig.png',
+        stampUrl: '/uploads/isb-stamp.png',
+        loginUsername: 'ho_isb_admin',
+        loginPassword: 'SecurePassword123!',
+        loginStatus: 'ACTIVE' as const,
       };
 
       const createdObj = {
@@ -241,6 +278,9 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
         altPhone: null,
         email: 'isb@greenwood.edu.pk',
         website: null,
+        logoUrl: '/uploads/isb-logo.png',
+        signatureUrl: '/uploads/isb-sig.png',
+        stampUrl: '/uploads/isb-stamp.png',
         directorName: null,
         adminContact: null,
         timezone: 'Asia/Karachi',
@@ -256,11 +296,26 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
       const res = await HeadOfficeService.createHeadOffice(mockTenantId, input, mockUserId);
       expect(res.code).toBe('HO-ISB');
       expect(res.shortName).toBe('ISB-HO');
+      expect(res.logoUrl).toBe('/uploads/isb-logo.png');
+      expect(res.loginUsername).toBe('ho_isb_admin');
       expect(prisma.headOffice.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             code: 'HO-ISB',
             name: 'Islamabad Federal Head Office',
+            logoUrl: '/uploads/isb-logo.png',
+            signatureUrl: '/uploads/isb-sig.png',
+            stampUrl: '/uploads/isb-stamp.png',
+          }),
+        })
+      );
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: mockTenantId,
+            username: 'ho_isb_admin',
+            passwordHash: 'hashed_SecurePassword123!',
+            status: 'ACTIVE',
           }),
         })
       );
@@ -302,10 +357,35 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
         })
       ).rejects.toThrow('already exists');
     });
+
+    it('should throw error if username is too short or duplicate', async () => {
+      vi.mocked(prisma.headOffice.findUnique).mockResolvedValue(null);
+
+      await expect(
+        HeadOfficeService.createHeadOffice(mockTenantId, {
+          name: 'Test Office',
+          code: 'HO-TST',
+          addressLine1: 'Address',
+          city: 'Karachi',
+          loginUsername: 'ab',
+        })
+      ).rejects.toThrow('Login ID / Username must be at least 3 characters.');
+
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'usr-existing' } as any);
+      await expect(
+        HeadOfficeService.createHeadOffice(mockTenantId, {
+          name: 'Test Office',
+          code: 'HO-TST',
+          addressLine1: 'Address',
+          city: 'Karachi',
+          loginUsername: 'existing_admin',
+        })
+      ).rejects.toThrow('already in use');
+    });
   });
 
   describe('updateHeadOffice', () => {
-    it('should update head office details successfully', async () => {
+    it('should update head office details and reset login password successfully', async () => {
       const existing = {
         id: 'ho-1',
         tenantId: mockTenantId,
@@ -314,26 +394,45 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
         addressLine1: 'Old Address',
         city: 'Karachi',
         status: 'ACTIVE',
+        logoUrl: null,
       };
 
       vi.mocked(prisma.headOffice.findFirst).mockResolvedValue(existing as any);
       vi.mocked(prisma.headOffice.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({
+        id: 'usr-1',
+        username: 'ho_01',
+        status: 'ACTIVE',
+      } as any);
 
       const updated = {
         ...existing,
         name: 'New Name Updated',
+        logoUrl: '/uploads/new-logo.png',
       };
       vi.mocked(prisma.headOffice.update).mockResolvedValue(updated as any);
 
       const res = await HeadOfficeService.updateHeadOffice(
         mockTenantId,
         'ho-1',
-        { name: 'New Name Updated' },
+        {
+          name: 'New Name Updated',
+          logoUrl: '/uploads/new-logo.png',
+          loginPassword: 'NewStrongPassword123!',
+        },
         mockUserId
       );
 
       expect(res.name).toBe('New Name Updated');
       expect(prisma.headOffice.update).toHaveBeenCalledTimes(1);
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'usr-1' },
+          data: expect.objectContaining({
+            passwordHash: 'hashed_NewStrongPassword123!',
+          }),
+        })
+      );
     });
   });
 
@@ -394,4 +493,3 @@ describe('HeadOfficeService (Phase 1: Head Office Management)', () => {
     });
   });
 });
-

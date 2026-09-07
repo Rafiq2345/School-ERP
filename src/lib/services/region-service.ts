@@ -1,12 +1,14 @@
 import { prisma } from '@/lib/db/prisma';
 import { GlobalReferenceService } from '@/lib/services/global-reference-service';
 import { HeadOfficeService } from '@/lib/services/head-office-service';
+import { hashPassword } from '@/lib/auth/password';
 
 export interface RegionInput {
   headOfficeId: string;
   name: string;
   code: string;
   shortName?: string | null;
+  registrationNo?: string | null;
   countryId?: string | null;
   stateId?: string | null;
   cityId?: string | null;
@@ -20,6 +22,14 @@ export interface RegionInput {
   altPhone?: string | null;
   email?: string | null;
   website?: string | null;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  // Login Access fields
+  loginUsername?: string | null;
+  loginPassword?: string | null;
+  loginStatus?: 'ACTIVE' | 'INACTIVE';
+  // Legacy / internal fields preserved for backward compatibility
   directorEmployeeId?: string | null;
   adminContactEmployeeId?: string | null;
   directorName?: string | null;
@@ -43,6 +53,17 @@ export class RegionService {
     if (!params.userId) return;
     try {
       if (prisma.auditLog?.create) {
+        // Sanitize out any passwords or hashes if present
+        const sanitize = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return obj;
+          const copy = { ...obj };
+          delete copy.password;
+          delete copy.loginPassword;
+          delete copy.confirmPassword;
+          delete copy.passwordHash;
+          return copy;
+        };
+
         await prisma.auditLog.create({
           data: {
             tenantId: params.tenantId,
@@ -51,8 +72,8 @@ export class RegionService {
             entityType: 'REGION',
             entityId: params.entityId,
             action: params.action,
-            oldValues: params.oldValues || undefined,
-            newValues: params.newValues || undefined,
+            oldValues: params.oldValues ? sanitize(params.oldValues) : undefined,
+            newValues: params.newValues ? sanitize(params.newValues) : undefined,
             changeSummary: params.changeSummary,
           },
         });
@@ -103,6 +124,7 @@ export class RegionService {
           name: 'Southern Sindh & Karachi Region',
           code: 'REG-KHI-001',
           shortName: 'SSK-REG',
+          registrationNo: 'REG-REG-001' as any,
           countryId: pkCountry?.id || primaryHO.countryId || null,
           stateId: sindhState?.id || primaryHO.stateId || null,
           cityId: karachiCity?.id || primaryHO.cityId || null,
@@ -125,7 +147,7 @@ export class RegionService {
           coveredDistricts: 'Karachi South, Karachi East, Karachi Central, Malir, Korangi, Thatta',
           status: 'ACTIVE',
           remarks: 'Primary regional operational center for southern division.',
-        },
+        } as any,
       });
 
       await this.logAudit({
@@ -192,6 +214,7 @@ export class RegionService {
         { name: { contains: q, mode: 'insensitive' } },
         { code: { contains: q, mode: 'insensitive' } },
         { shortName: { contains: q, mode: 'insensitive' } },
+        { registrationNo: { contains: q, mode: 'insensitive' } },
         { city: { contains: q, mode: 'insensitive' } },
         { state: { contains: q, mode: 'insensitive' } },
         { country: { contains: q, mode: 'insensitive' } },
@@ -246,6 +269,40 @@ export class RegionService {
       }),
     ]);
 
+    // Enhance items with login user information if available
+    const enrichedItems = await Promise.all(
+      items.map(async (item) => {
+        let loginUsername: string | null = null;
+        let loginStatus: string | null = null;
+        try {
+          if (prisma.user?.findFirst) {
+            const user = await prisma.user.findFirst({
+              where: {
+                tenantId,
+                OR: [
+                  { username: item.code.toLowerCase() },
+                  { username: item.code.toLowerCase().replace(/-/g, '_') },
+                  ...(item.email ? [{ email: item.email }] : []),
+                ],
+              },
+              select: { username: true, status: true },
+            });
+            if (user) {
+              loginUsername = user.username;
+              loginStatus = user.status;
+            }
+          }
+        } catch {
+          // Non-blocking
+        }
+        return {
+          ...item,
+          loginUsername: loginUsername || item.code.toLowerCase().replace(/-/g, '_'),
+          loginStatus: (loginStatus as 'ACTIVE' | 'INACTIVE') || (item.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+        };
+      })
+    );
+
     const activeCount = allRecords.filter((r) => r.status === 'ACTIVE').length;
     const inactiveCount = allRecords.filter((r) => r.status === 'INACTIVE').length;
     const archivedCount = allRecords.filter((r) => r.status === 'ARCHIVED').length;
@@ -253,7 +310,7 @@ export class RegionService {
     const uniqueHeadOfficesCount = new Set(allRecords.map((r) => r.headOfficeId)).size;
 
     return {
-      items,
+      items: enrichedItems,
       stats: {
         total: allRecords.length,
         active: activeCount,
@@ -297,7 +354,37 @@ export class RegionService {
       throw new Error(`Region not found with ID: ${id}`);
     }
 
-    return region;
+    let loginUsername: string | null = null;
+    let loginStatus: string | null = null;
+
+    try {
+      if (prisma.user?.findFirst) {
+        const user = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: region.code.toLowerCase() },
+              { username: region.code.toLowerCase().replace(/-/g, '_') },
+              ...(region.email ? [{ email: region.email }] : []),
+            ],
+          },
+          select: { username: true, status: true },
+        });
+        if (user) {
+          loginUsername = user.username;
+          loginStatus = user.status;
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    return {
+      ...region,
+      loginUsername: loginUsername || region.code.toLowerCase().replace(/-/g, '_'),
+      registrationNo: (region as any).registrationNo || region.shortName || null,
+      loginStatus: (loginStatus as 'ACTIVE' | 'INACTIVE') || (region.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+    };
   }
 
   /**
@@ -308,16 +395,16 @@ export class RegionService {
     input: RegionInput
   ) {
     // 1. Parent Head Office Validation (Mandatory for Region)
-    if (!input.headOfficeId) {
-      throw new Error('Parent Head Office is required for a Region.');
+    if (!input.headOfficeId || !input.headOfficeId.trim()) {
+      throw new Error('Parent Head Office selection is mandatory. A Region cannot exist without a Parent Head Office.');
     }
 
     const headOffice = await prisma.headOffice.findFirst({
-      where: { id: input.headOfficeId, tenantId },
+      where: { id: input.headOfficeId.trim(), tenantId },
     });
 
     if (!headOffice) {
-      throw new Error('Selected Parent Head Office does not exist or does not belong to this tenant.');
+      throw new Error('Selected Parent Head Office does not exist or does not belong to this organization.');
     }
 
     let resolvedCountryName = input.country || headOffice.country || 'Pakistan';
@@ -357,7 +444,7 @@ export class RegionService {
       resolvedCityName = input.city.trim();
     }
 
-    // 5. Employee Reference Checks
+    // 5. Employee Reference Checks (preserved internally for backward compatibility)
     let resolvedDirectorName = input.directorName ? input.directorName.trim() : null;
     if (input.directorEmployeeId) {
       const directorEmp = await prisma.employee.findFirst({
@@ -426,7 +513,7 @@ export class RegionService {
   }
 
   /**
-   * Create a new Region
+   * Create a new Region with optional Document Assets and Login Access Account
    */
   public static async createRegion(tenantId: string, input: RegionInput, userId?: string) {
     if (!input.name || !input.name.trim()) {
@@ -436,7 +523,7 @@ export class RegionService {
       throw new Error('Region Code is required.');
     }
     if (!input.headOfficeId || !input.headOfficeId.trim()) {
-      throw new Error('Parent Head Office selection is required.');
+      throw new Error('Parent Head Office selection is mandatory. A Region cannot exist without a Parent Head Office.');
     }
 
     const resolved = await this.resolveAndValidateReferences(tenantId, input);
@@ -456,13 +543,38 @@ export class RegionService {
       throw new Error(`A Region with code "${normalizedCode}" already exists.`);
     }
 
+    // 1. Handle Login Access Credentials Validation
+    const targetUsername = (input.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    if (targetUsername.length < 3) {
+      throw new Error('Login ID / Username must be at least 3 characters.');
+    }
+
+    // Check username uniqueness if User table is available
+    if (prisma.user?.findFirst) {
+      const existingUser = await prisma.user.findFirst({
+        where: { tenantId, username: targetUsername },
+      });
+      if (existingUser) {
+        throw new Error(`Username "${targetUsername}" is already in use by another account.`);
+      }
+    }
+
+    let passwordHash: string | null = null;
+    if (input.loginPassword && input.loginPassword.trim()) {
+      if (input.loginPassword.trim().length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
+      }
+      passwordHash = await hashPassword(input.loginPassword.trim());
+    }
+
+    // 2. Create Region Record
     const created = await prisma.region.create({
       data: {
         tenantId,
         headOfficeId: input.headOfficeId.trim(),
         name: input.name.trim(),
         code: normalizedCode,
-        shortName: input.shortName ? input.shortName.trim().toUpperCase() : null,
+        shortName: (input.registrationNo || input.shortName ? (input.registrationNo || input.shortName)!.trim() : null),
         countryId: input.countryId || null,
         stateId: input.stateId || null,
         cityId: input.cityId || null,
@@ -476,15 +588,18 @@ export class RegionService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: input.logoUrl || null,
+        signatureUrl: input.signatureUrl || null,
+        stampUrl: input.stampUrl || null,
         directorEmployeeId: input.directorEmployeeId || null,
         adminContactEmployeeId: input.adminContactEmployeeId || null,
         directorName: resolved.directorName,
         adminContact: resolved.adminContact,
         coverageNotes: input.coverageNotes ? input.coverageNotes.trim() : null,
         coveredDistricts: input.coveredDistricts ? input.coveredDistricts.trim() : null,
-        status: input.status || 'ACTIVE',
+        status: input.status || input.loginStatus || 'ACTIVE',
         remarks: input.remarks ? input.remarks.trim() : null,
-      },
+      } as any,
       include: {
         headOffice: true,
         countryRef: true,
@@ -495,20 +610,64 @@ export class RegionService {
       },
     });
 
+    // 3. Create User Account for Region Login if password provided and User table exists
+    if (passwordHash && prisma.user?.create) {
+      try {
+        const createdUser = await prisma.user.create({
+          data: {
+            tenantId,
+            username: targetUsername,
+            email: resolved.email || undefined,
+            phone: resolved.phone || undefined,
+            passwordHash,
+            userType: 'ADMIN',
+            status: input.loginStatus || 'ACTIVE',
+          },
+        });
+
+        // Link Region Admin or default role if exists
+        if (prisma.role?.findFirst && prisma.userRole?.create) {
+          const regionRole =
+            (await prisma.role.findFirst({ where: { tenantId, code: 'REGION_ADMIN' } })) ||
+            (await prisma.role.findFirst({ where: { tenantId, code: 'SUPER_ADMIN' } })) ||
+            (await prisma.role.findFirst({ where: { tenantId } }));
+          if (regionRole) {
+            await prisma.userRole.create({
+              data: {
+                tenantId,
+                userId: createdUser.id,
+                roleId: regionRole.id,
+              },
+            }).catch(() => {});
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to create linked User record for Region:', err.message);
+      }
+    }
+
     await this.logAudit({
       tenantId,
       userId,
       action: 'CREATE',
       entityId: created.id,
-      newValues: created,
-      changeSummary: `Created Region "${created.name}" [${created.code}] under Head Office "${resolved.headOffice.name}"`,
+      newValues: {
+        ...created,
+        loginUsername: targetUsername,
+        loginStatus: input.loginStatus || 'ACTIVE',
+      },
+      changeSummary: `Created Region "${created.name}" [${created.code}] under Head Office "${resolved.headOffice.name}" with Login ID "${targetUsername}"`,
     });
 
-    return created;
+    return {
+      ...created,
+      loginUsername: targetUsername,
+      loginStatus: input.loginStatus || 'ACTIVE',
+    };
   }
 
   /**
-   * Update an existing Region
+   * Update an existing Region with optional Document Assets and Login Access Account
    */
   public static async updateRegion(
     tenantId: string,
@@ -535,7 +694,7 @@ export class RegionService {
       }
     }
 
-    const rawStatus = input.status !== undefined ? input.status : existing.status;
+    const rawStatus = input.status !== undefined ? input.status : (input.loginStatus !== undefined ? input.loginStatus : existing.status);
     const effectiveStatus: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' =
       rawStatus === 'INACTIVE' ? 'INACTIVE' : rawStatus === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE';
 
@@ -544,6 +703,7 @@ export class RegionService {
       name: input.name !== undefined ? input.name : existing.name,
       code: normalizedCode,
       shortName: input.shortName !== undefined ? input.shortName : existing.shortName,
+      registrationNo: input.registrationNo !== undefined ? input.registrationNo : ((existing as any).registrationNo || null),
       countryId: input.countryId !== undefined ? input.countryId : existing.countryId,
       stateId: input.stateId !== undefined ? input.stateId : existing.stateId,
       cityId: input.cityId !== undefined ? input.cityId : existing.cityId,
@@ -557,6 +717,11 @@ export class RegionService {
       altPhone: input.altPhone !== undefined ? input.altPhone : existing.altPhone,
       email: input.email !== undefined ? input.email : existing.email,
       website: input.website !== undefined ? input.website : existing.website,
+      logoUrl: input.logoUrl !== undefined ? input.logoUrl : existing.logoUrl,
+      signatureUrl: input.signatureUrl !== undefined ? input.signatureUrl : existing.signatureUrl,
+      stampUrl: input.stampUrl !== undefined ? input.stampUrl : existing.stampUrl,
+      loginUsername: input.loginUsername !== undefined ? input.loginUsername : existing.loginUsername,
+      loginStatus: input.loginStatus !== undefined ? input.loginStatus : (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
       directorEmployeeId: input.directorEmployeeId !== undefined ? input.directorEmployeeId : existing.directorEmployeeId,
       adminContactEmployeeId: input.adminContactEmployeeId !== undefined ? input.adminContactEmployeeId : existing.adminContactEmployeeId,
       directorName: input.directorName !== undefined ? input.directorName : existing.directorName,
@@ -569,13 +734,14 @@ export class RegionService {
 
     const resolved = await this.resolveAndValidateReferences(tenantId, mergedInput);
 
+    // 1. Update Region Record
     const updated = await prisma.region.update({
       where: { id },
       data: {
         headOfficeId: mergedInput.headOfficeId.trim(),
         name: mergedInput.name.trim(),
         code: normalizedCode,
-        shortName: mergedInput.shortName ? mergedInput.shortName.trim().toUpperCase() : null,
+        shortName: (mergedInput.registrationNo || mergedInput.shortName ? (mergedInput.registrationNo || mergedInput.shortName)!.trim() : null),
         countryId: mergedInput.countryId || null,
         stateId: mergedInput.stateId || null,
         cityId: mergedInput.cityId || null,
@@ -589,6 +755,9 @@ export class RegionService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: mergedInput.logoUrl || null,
+        signatureUrl: mergedInput.signatureUrl || null,
+        stampUrl: mergedInput.stampUrl || null,
         directorEmployeeId: mergedInput.directorEmployeeId || null,
         adminContactEmployeeId: mergedInput.adminContactEmployeeId || null,
         directorName: resolved.directorName,
@@ -597,7 +766,7 @@ export class RegionService {
         coveredDistricts: mergedInput.coveredDistricts ? mergedInput.coveredDistricts.trim() : null,
         status: effectiveStatus,
         remarks: mergedInput.remarks ? mergedInput.remarks.trim() : null,
-      },
+      } as any,
       include: {
         headOffice: true,
         countryRef: true,
@@ -608,17 +777,105 @@ export class RegionService {
       },
     });
 
+    // 2. Handle Linked User Account Updates (Username, Status, Password Reset)
+    const targetUsername = (mergedInput.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    let passwordChanged = false;
+
+    if (prisma.user?.findFirst) {
+      try {
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: existing.code.toLowerCase() },
+              { username: existing.code.toLowerCase().replace(/-/g, '_') },
+              { username: targetUsername },
+              ...(existing.email ? [{ email: existing.email }] : []),
+            ],
+          },
+        });
+
+        if (existingUser) {
+          const userUpdateData: any = {
+            username: targetUsername,
+            status: mergedInput.loginStatus || (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+            email: resolved.email || undefined,
+            phone: resolved.phone || undefined,
+          };
+
+          if (input.loginPassword && input.loginPassword.trim()) {
+            if (input.loginPassword.trim().length < 8) {
+              throw new Error('Password must be at least 8 characters long.');
+            }
+            userUpdateData.passwordHash = await hashPassword(input.loginPassword.trim());
+            passwordChanged = true;
+          }
+
+          if (prisma.user?.update) {
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: userUpdateData,
+            });
+          }
+        } else if (input.loginPassword && input.loginPassword.trim()) {
+          // User did not exist yet; create now
+          if (input.loginPassword.trim().length < 8) {
+            throw new Error('Password must be at least 8 characters long.');
+          }
+          const passwordHash = await hashPassword(input.loginPassword.trim());
+          passwordChanged = true;
+
+          if (prisma.user?.create) {
+            const newUser = await prisma.user.create({
+              data: {
+                tenantId,
+                username: targetUsername,
+                email: resolved.email || undefined,
+                phone: resolved.phone || undefined,
+                passwordHash,
+                userType: 'ADMIN',
+                status: mergedInput.loginStatus || (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+              },
+            });
+
+            if (prisma.role?.findFirst && prisma.userRole?.create) {
+              const regionRole =
+                (await prisma.role.findFirst({ where: { tenantId, code: 'REGION_ADMIN' } })) ||
+                (await prisma.role.findFirst({ where: { tenantId, code: 'SUPER_ADMIN' } })) ||
+                (await prisma.role.findFirst({ where: { tenantId } }));
+              if (regionRole) {
+                await prisma.userRole.create({
+                  data: {
+                    tenantId,
+                    userId: newUser.id,
+                    roleId: regionRole.id,
+                  },
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to sync User record for Region:', err.message);
+      }
+    }
+
+    const passwordMsg = passwordChanged ? ' and reset login password' : '';
     await this.logAudit({
       tenantId,
       userId,
       action: 'UPDATE',
       entityId: updated.id,
-      oldValues: existing,
-      newValues: updated,
-      changeSummary: `Updated Region details for "${updated.name}" [${updated.code}]`,
+      oldValues: { ...existing, passwordChanged: false },
+      newValues: { ...updated, loginUsername: targetUsername, loginStatus: mergedInput.loginStatus, passwordChanged },
+      changeSummary: `Updated Region details for "${updated.name}" [${updated.code}]${passwordMsg}`,
     });
 
-    return updated;
+    return {
+      ...updated,
+      loginUsername: targetUsername,
+      loginStatus: mergedInput.loginStatus || (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+    };
   }
 
   /**
@@ -649,6 +906,30 @@ export class RegionService {
         adminContactPerson: true,
       },
     });
+
+    // Also sync User account status if available
+    try {
+      if (prisma.user?.findFirst && prisma.user?.update) {
+        const user = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: existing.code.toLowerCase() },
+              { username: existing.code.toLowerCase().replace(/-/g, '_') },
+              ...(existing.email ? [{ email: existing.email }] : []),
+            ],
+          },
+        });
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { status: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' },
+          });
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
 
     const action = status === 'ACTIVE' ? 'ACTIVATE' : status === 'ARCHIVED' ? 'ARCHIVE' : 'DEACTIVATE';
     const reasonText = reason ? ` (Reason: ${reason})` : '';

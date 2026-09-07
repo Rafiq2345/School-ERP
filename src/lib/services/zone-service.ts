@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { GlobalReferenceService } from '@/lib/services/global-reference-service';
 import { HeadOfficeService } from '@/lib/services/head-office-service';
 import { RegionService } from '@/lib/services/region-service';
+import { hashPassword } from '@/lib/auth/password';
 
 export interface ZoneInput {
   headOfficeId: string;
@@ -9,6 +10,7 @@ export interface ZoneInput {
   name: string;
   code: string;
   shortName?: string | null;
+  registrationNo?: string | null;
   countryId?: string | null;
   stateId?: string | null;
   cityId?: string | null;
@@ -22,10 +24,20 @@ export interface ZoneInput {
   altPhone?: string | null;
   email?: string | null;
   website?: string | null;
+  logoUrl?: string | null;
+  signatureUrl?: string | null;
+  stampUrl?: string | null;
+  // Login Access fields
+  loginUsername?: string | null;
+  loginPassword?: string | null;
+  loginStatus?: 'ACTIVE' | 'INACTIVE';
+  // Legacy / internal fields preserved for backward compatibility
   managerEmployeeId?: string | null;
   adminContactEmployeeId?: string | null;
   managerName?: string | null;
+  managerDesignation?: string | null;
   adminContact?: string | null;
+  adminContactDesignation?: string | null;
   coverageNotes?: string | null;
   coveredDistricts?: string | null;
   status?: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
@@ -45,6 +57,17 @@ export class ZoneService {
     if (!params.userId) return;
     try {
       if (prisma.auditLog?.create) {
+        // Sanitize out any passwords or hashes if present
+        const sanitize = (obj: any) => {
+          if (!obj || typeof obj !== 'object') return obj;
+          const copy = { ...obj };
+          delete copy.password;
+          delete copy.loginPassword;
+          delete copy.confirmPassword;
+          delete copy.passwordHash;
+          return copy;
+        };
+
         await prisma.auditLog.create({
           data: {
             tenantId: params.tenantId,
@@ -53,8 +76,8 @@ export class ZoneService {
             entityType: 'ZONE',
             entityId: params.entityId,
             action: params.action,
-            oldValues: params.oldValues || undefined,
-            newValues: params.newValues || undefined,
+            oldValues: params.oldValues ? sanitize(params.oldValues) : undefined,
+            newValues: params.newValues ? sanitize(params.newValues) : undefined,
             changeSummary: params.changeSummary,
           },
         });
@@ -112,7 +135,7 @@ export class ZoneService {
           regionId: primaryRegion?.id || null,
           name: 'Karachi Central Academic Zone',
           code: 'ZN-KHI-001',
-          shortName: 'KC-ZONE',
+          shortName: 'ZN-REG-001',
           countryId: pkCountry?.id || primaryRegion?.countryId || primaryHO.countryId || null,
           stateId: sindhState?.id || primaryRegion?.stateId || primaryHO.stateId || null,
           cityId: karachiCity?.id || primaryRegion?.cityId || primaryHO.cityId || null,
@@ -128,14 +151,14 @@ export class ZoneService {
           website: 'https://greenwood.edu.pk/zones/central',
           managerEmployeeId: activeEmp?.id || null,
           managerName: activeEmp
-            ? `${activeEmp.firstNameEn} ${activeEmp.lastNameEn || ''}`.trim()
+            ? activeEmp.firstNameEn + ' ' + (activeEmp.lastNameEn || '')
             : 'Tariq Mahmood (Zone Coordinator)',
           adminContact: 'Farah Naz (Zonal Academic Lead)',
           coverageNotes: 'Coordinates central metropolitan campuses, primary sections, and secondary high school branches.',
           coveredDistricts: 'Gulshan-e-Iqbal, Gulberg, Federal B Area, Liaquatabad',
           status: 'ACTIVE',
           remarks: 'Primary central academic zone established for urban cluster operations.',
-        },
+        } as any,
       });
 
       await this.logAudit({
@@ -144,7 +167,7 @@ export class ZoneService {
         action: 'CREATE',
         entityId: defaultZone.id,
         newValues: defaultZone,
-        changeSummary: `Initialized default primary Zone: ${defaultZone.name} (${defaultZone.code})`,
+        changeSummary: 'Initialized default primary Zone: ' + defaultZone.name + ' (' + defaultZone.code + ')',
       });
 
       return defaultZone;
@@ -163,14 +186,14 @@ export class ZoneService {
     const existing = await prisma.zone.findMany({
       where: {
         tenantId,
-        code: { startsWith: `ZN-${prefix}-` },
+        code: { startsWith: 'ZN-' + prefix + '-' },
       },
       select: { code: true },
     });
 
     const nextSeq = existing.length + 1;
     const padded = String(nextSeq).padStart(3, '0');
-    return `ZN-${prefix}-${padded}`;
+    return 'ZN-' + prefix + '-' + padded;
   }
 
   /**
@@ -193,7 +216,7 @@ export class ZoneService {
     }
 
     if (options.regionId) {
-      if (options.regionId === 'NONE') {
+      if (options.regionId === 'NONE' || options.regionId === 'DIRECT') {
         where.regionId = null;
       } else if (options.regionId !== 'ALL') {
         where.regionId = options.regionId;
@@ -271,6 +294,35 @@ export class ZoneService {
       }),
     ]);
 
+    // Fetch linked user accounts for zones to enrich login access info
+    let usersByUsername = new Map<string, { username: string; status: string }>();
+    if (prisma.user?.findMany) {
+      try {
+        const usernames = items.map((z) => z.code.toLowerCase().replace(/-/g, '_'));
+        const users = await prisma.user.findMany({
+          where: {
+            tenantId,
+            username: { in: usernames },
+          },
+          select: { username: true, status: true },
+        });
+        users.forEach((u) => usersByUsername.set(u.username, u));
+      } catch {
+        // Non-blocking fallback
+      }
+    }
+
+    const enrichedItems = items.map((zone) => {
+      const defaultUsername = zone.code.toLowerCase().replace(/-/g, '_');
+      const user = usersByUsername.get(defaultUsername);
+      return {
+        ...zone,
+        registrationNo: (zone as any).registrationNo || zone.shortName || null,
+        loginUsername: user?.username || defaultUsername,
+        loginStatus: (user?.status as 'ACTIVE' | 'INACTIVE') || (zone.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+      };
+    });
+
     const activeCount = allRecords.filter((r) => r.status === 'ACTIVE').length;
     const inactiveCount = allRecords.filter((r) => r.status === 'INACTIVE').length;
     const archivedCount = allRecords.filter((r) => r.status === 'ARCHIVED').length;
@@ -280,7 +332,7 @@ export class ZoneService {
     const uniqueRegionsCount = new Set(allRecords.map((r) => r.regionId).filter(Boolean)).size;
 
     return {
-      items,
+      items: enrichedItems,
       stats: {
         total: allRecords.length,
         active: activeCount,
@@ -298,7 +350,7 @@ export class ZoneService {
   }
 
   /**
-   * Get single Zone by ID with full relations
+   * Get single Zone by ID with full relations and login account details
    */
   public static async getZoneById(tenantId: string, id: string) {
     const zone = await prisma.zone.findFirst({
@@ -325,10 +377,36 @@ export class ZoneService {
     });
 
     if (!zone) {
-      throw new Error(`Zone not found with ID: ${id}`);
+      throw new Error('Zone not found with ID: ' + id);
     }
 
-    return zone;
+    // Enrich login account details if available
+    let loginUsername: string | null = null;
+    let loginStatus: string | null = null;
+    try {
+      if (prisma.user?.findFirst) {
+        const user = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            username: zone.code.toLowerCase().replace(/-/g, '_'),
+          },
+          select: { username: true, status: true },
+        });
+        if (user) {
+          loginUsername = user.username;
+          loginStatus = user.status;
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    return {
+      ...zone,
+      registrationNo: (zone as any).registrationNo || zone.shortName || null,
+      loginUsername: loginUsername || zone.code.toLowerCase().replace(/-/g, '_'),
+      loginStatus: (loginStatus as 'ACTIVE' | 'INACTIVE') || (zone.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+    };
   }
 
   /**
@@ -339,30 +417,30 @@ export class ZoneService {
     input: ZoneInput
   ) {
     // 1. Parent Head Office Validation (Mandatory for Zone)
-    if (!input.headOfficeId) {
-      throw new Error('Parent Head Office is required for a Zone.');
+    if (!input.headOfficeId || !input.headOfficeId.trim()) {
+      throw new Error('Parent Head Office selection is mandatory. A Zone must always belong to a Head Office.');
     }
 
     const headOffice = await prisma.headOffice.findFirst({
-      where: { id: input.headOfficeId, tenantId },
+      where: { id: input.headOfficeId.trim(), tenantId },
     });
 
     if (!headOffice) {
-      throw new Error('Selected Parent Head Office does not exist or does not belong to this tenant.');
+      throw new Error('Selected Parent Head Office does not exist or does not belong to this organization.');
     }
 
     // 2. Parent Region Validation (Optional for Zone)
     let region: any = null;
-    if (input.regionId && input.regionId.trim() !== '') {
+    if (input.regionId && input.regionId.trim() !== '' && input.regionId !== 'NONE' && input.regionId !== 'DIRECT') {
       region = await prisma.region.findFirst({
-        where: { id: input.regionId, tenantId },
+        where: { id: input.regionId.trim(), tenantId },
       });
 
       if (!region) {
-        throw new Error('Selected Parent Region does not exist or does not belong to this tenant.');
+        throw new Error('Selected Parent Region does not exist or does not belong to this organization.');
       }
 
-      if (region.headOfficeId !== input.headOfficeId) {
+      if (region.headOfficeId !== input.headOfficeId.trim()) {
         throw new Error('Selected Parent Region does not belong to the selected Parent Head Office.');
       }
     }
@@ -404,7 +482,7 @@ export class ZoneService {
       resolvedCityName = input.city.trim();
     }
 
-    // 6. Employee Reference Checks
+    // 6. Employee Reference Checks (preserved internally for backward compatibility)
     let resolvedManagerName = input.managerName ? input.managerName.trim() : null;
     if (input.managerEmployeeId) {
       const managerEmp = await prisma.employee.findFirst({
@@ -414,9 +492,9 @@ export class ZoneService {
       if (!managerEmp) {
         throw new Error('Selected Zone Manager must be an active employee in HR.');
       }
-      resolvedManagerName = `${managerEmp.firstNameEn} ${managerEmp.lastNameEn || ''}`.trim();
+      resolvedManagerName = (managerEmp.firstNameEn + ' ' + (managerEmp.lastNameEn || '')).trim();
       if (managerEmp.designation?.name) {
-        resolvedManagerName += ` (${managerEmp.designation.name})`;
+        resolvedManagerName += ' (' + managerEmp.designation.name + ')';
       }
     }
 
@@ -429,9 +507,9 @@ export class ZoneService {
       if (!adminEmp) {
         throw new Error('Selected Administrative Contact must be an active employee in HR.');
       }
-      resolvedAdminContact = `${adminEmp.firstNameEn} ${adminEmp.lastNameEn || ''}`.trim();
+      resolvedAdminContact = (adminEmp.firstNameEn + ' ' + (adminEmp.lastNameEn || '')).trim();
       if (adminEmp.designation?.name) {
-        resolvedAdminContact += ` (${adminEmp.designation.name})`;
+        resolvedAdminContact += ' (' + adminEmp.designation.name + ')';
       }
     }
 
@@ -474,7 +552,7 @@ export class ZoneService {
   }
 
   /**
-   * Create a new Zone
+   * Create a new Zone with optional Document Assets and Login Access Account
    */
   public static async createZone(tenantId: string, input: ZoneInput, userId?: string) {
     if (!input.name || !input.name.trim()) {
@@ -484,7 +562,7 @@ export class ZoneService {
       throw new Error('Zone Code is required.');
     }
     if (!input.headOfficeId || !input.headOfficeId.trim()) {
-      throw new Error('Parent Head Office selection is required.');
+      throw new Error('Parent Head Office selection is mandatory. A Zone must always belong to a Head Office.');
     }
 
     const resolved = await this.resolveAndValidateReferences(tenantId, input);
@@ -501,17 +579,42 @@ export class ZoneService {
     });
 
     if (existing) {
-      throw new Error(`A Zone with code "${normalizedCode}" already exists.`);
+      throw new Error('A Zone with code "' + normalizedCode + '" already exists.');
     }
 
+    // 1. Handle Login Access Credentials Validation
+    const targetUsername = (input.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    if (targetUsername.length < 3) {
+      throw new Error('Login ID / Username must be at least 3 characters.');
+    }
+
+    // Check username uniqueness if User table is available
+    if (prisma.user?.findFirst) {
+      const existingUser = await prisma.user.findFirst({
+        where: { tenantId, username: targetUsername },
+      });
+      if (existingUser) {
+        throw new Error('Username "' + targetUsername + '" is already in use by another account.');
+      }
+    }
+
+    let passwordHash: string | null = null;
+    if (input.loginPassword && input.loginPassword.trim()) {
+      if (input.loginPassword.trim().length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
+      }
+      passwordHash = await hashPassword(input.loginPassword.trim());
+    }
+
+    // 2. Create Zone Record
     const created = await prisma.zone.create({
       data: {
         tenantId,
         headOfficeId: input.headOfficeId.trim(),
-        regionId: input.regionId && input.regionId.trim() !== '' ? input.regionId.trim() : null,
+        regionId: input.regionId && input.regionId.trim() !== '' && input.regionId !== 'NONE' && input.regionId !== 'DIRECT' ? input.regionId.trim() : null,
         name: input.name.trim(),
         code: normalizedCode,
-        shortName: input.shortName ? input.shortName.trim().toUpperCase() : null,
+        shortName: (input.registrationNo || input.shortName ? (input.registrationNo || input.shortName)!.trim() : null),
         countryId: input.countryId || null,
         stateId: input.stateId || null,
         cityId: input.cityId || null,
@@ -525,15 +628,18 @@ export class ZoneService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: input.logoUrl || null,
+        signatureUrl: input.signatureUrl || null,
+        stampUrl: input.stampUrl || null,
         managerEmployeeId: input.managerEmployeeId || null,
         adminContactEmployeeId: input.adminContactEmployeeId || null,
         managerName: resolved.managerName,
         adminContact: resolved.adminContact,
         coverageNotes: input.coverageNotes ? input.coverageNotes.trim() : null,
         coveredDistricts: input.coveredDistricts ? input.coveredDistricts.trim() : null,
-        status: input.status || 'ACTIVE',
+        status: input.status || input.loginStatus || 'ACTIVE',
         remarks: input.remarks ? input.remarks.trim() : null,
-      },
+      } as any,
       include: {
         headOffice: true,
         region: true,
@@ -545,9 +651,58 @@ export class ZoneService {
       },
     });
 
+    // If registration_no column exists in DB, run a non-blocking update
+    if (input.registrationNo && (prisma as any).$executeRawUnsafe) {
+      try {
+        await (prisma as any).$executeRawUnsafe(
+          'UPDATE zones SET registration_no = $1 WHERE id = $2',
+          input.registrationNo.trim(),
+          created.id
+        );
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    // 3. Create User Account for Zone Login if password provided and User table exists
+    if (passwordHash && prisma.user?.create) {
+      try {
+        const createdUser = await prisma.user.create({
+          data: {
+            tenantId,
+            username: targetUsername,
+            email: resolved.email || undefined,
+            phone: resolved.phone || undefined,
+            passwordHash,
+            userType: 'ADMIN',
+            status: input.loginStatus || 'ACTIVE',
+          },
+        });
+
+        // Link Zone Admin or default role if exists
+        if (prisma.role?.findFirst && prisma.userRole?.create) {
+          const zoneRole =
+            (await prisma.role.findFirst({ where: { tenantId, code: 'ZONE_ADMIN' } })) ||
+            (await prisma.role.findFirst({ where: { tenantId, code: 'ADMIN' } })) ||
+            (await prisma.role.findFirst({ where: { tenantId } }));
+          if (zoneRole) {
+            await prisma.userRole.create({
+              data: {
+                tenantId,
+                userId: createdUser.id,
+                roleId: zoneRole.id,
+              },
+            }).catch(() => {});
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to create linked User record for Zone:', err.message);
+      }
+    }
+
     const parentHierarchyDesc = resolved.region
-      ? `Head Office "${resolved.headOffice.name}" -> Region "${resolved.region.name}"`
-      : `Head Office "${resolved.headOffice.name}" (Direct)`;
+      ? 'Head Office "' + resolved.headOffice.name + '" -> Region "' + resolved.region.name + '"'
+      : 'Head Office "' + resolved.headOffice.name + '" (Direct Head Office Attachment)';
 
     await this.logAudit({
       tenantId,
@@ -555,14 +710,19 @@ export class ZoneService {
       action: 'CREATE',
       entityId: created.id,
       newValues: created,
-      changeSummary: `Created Zone "${created.name}" [${created.code}] under ${parentHierarchyDesc}`,
+      changeSummary: 'Created Zone "' + created.name + '" [' + created.code + '] under ' + parentHierarchyDesc,
     });
 
-    return created;
+    return {
+      ...created,
+      registrationNo: input.registrationNo || created.shortName || null,
+      loginUsername: targetUsername,
+      loginStatus: input.loginStatus || 'ACTIVE',
+    };
   }
 
   /**
-   * Update an existing Zone
+   * Update an existing Zone with re-parenting integrity, Document Assets, and Login Access Account
    */
   public static async updateZone(
     tenantId: string,
@@ -585,20 +745,26 @@ export class ZoneService {
       });
 
       if (duplicate && duplicate.id !== id) {
-        throw new Error(`Another Zone with code "${normalizedCode}" already exists.`);
+        throw new Error('Another Zone with code "' + normalizedCode + '" already exists.');
       }
     }
 
-    const rawStatus = input.status !== undefined ? input.status : existing.status;
+    const rawStatus = input.status !== undefined ? input.status : (input.loginStatus !== undefined ? input.loginStatus : existing.status);
     const effectiveStatus: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' =
       rawStatus === 'INACTIVE' ? 'INACTIVE' : rawStatus === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE';
 
+    const mergedRegionId =
+      input.regionId !== undefined
+        ? (input.regionId === 'NONE' || input.regionId === 'DIRECT' || input.regionId === '' ? null : input.regionId)
+        : existing.regionId;
+
     const mergedInput: ZoneInput = {
       headOfficeId: input.headOfficeId !== undefined ? input.headOfficeId : existing.headOfficeId,
-      regionId: input.regionId !== undefined ? input.regionId : existing.regionId,
+      regionId: mergedRegionId,
       name: input.name !== undefined ? input.name : existing.name,
       code: normalizedCode,
       shortName: input.shortName !== undefined ? input.shortName : existing.shortName,
+      registrationNo: input.registrationNo !== undefined ? input.registrationNo : ((existing as any).registrationNo || null),
       countryId: input.countryId !== undefined ? input.countryId : existing.countryId,
       stateId: input.stateId !== undefined ? input.stateId : existing.stateId,
       cityId: input.cityId !== undefined ? input.cityId : existing.cityId,
@@ -612,6 +778,11 @@ export class ZoneService {
       altPhone: input.altPhone !== undefined ? input.altPhone : existing.altPhone,
       email: input.email !== undefined ? input.email : existing.email,
       website: input.website !== undefined ? input.website : existing.website,
+      logoUrl: input.logoUrl !== undefined ? input.logoUrl : (existing as any).logoUrl,
+      signatureUrl: input.signatureUrl !== undefined ? input.signatureUrl : (existing as any).signatureUrl,
+      stampUrl: input.stampUrl !== undefined ? input.stampUrl : (existing as any).stampUrl,
+      loginUsername: input.loginUsername !== undefined ? input.loginUsername : existing.loginUsername,
+      loginStatus: input.loginStatus !== undefined ? input.loginStatus : (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
       managerEmployeeId: input.managerEmployeeId !== undefined ? input.managerEmployeeId : existing.managerEmployeeId,
       adminContactEmployeeId: input.adminContactEmployeeId !== undefined ? input.adminContactEmployeeId : existing.adminContactEmployeeId,
       managerName: input.managerName !== undefined ? input.managerName : existing.managerName,
@@ -628,10 +799,10 @@ export class ZoneService {
       where: { id },
       data: {
         headOfficeId: mergedInput.headOfficeId.trim(),
-        regionId: mergedInput.regionId && mergedInput.regionId.trim() !== '' ? mergedInput.regionId.trim() : null,
+        regionId: mergedInput.regionId && mergedInput.regionId.trim() !== '' && mergedInput.regionId !== 'NONE' && mergedInput.regionId !== 'DIRECT' ? mergedInput.regionId.trim() : null,
         name: mergedInput.name.trim(),
         code: normalizedCode,
-        shortName: mergedInput.shortName ? mergedInput.shortName.trim().toUpperCase() : null,
+        shortName: (mergedInput.registrationNo || mergedInput.shortName ? (mergedInput.registrationNo || mergedInput.shortName)!.trim() : null),
         countryId: mergedInput.countryId || null,
         stateId: mergedInput.stateId || null,
         cityId: mergedInput.cityId || null,
@@ -645,6 +816,9 @@ export class ZoneService {
         altPhone: resolved.altPhone,
         email: resolved.email,
         website: resolved.website,
+        logoUrl: mergedInput.logoUrl || null,
+        signatureUrl: mergedInput.signatureUrl || null,
+        stampUrl: mergedInput.stampUrl || null,
         managerEmployeeId: mergedInput.managerEmployeeId || null,
         adminContactEmployeeId: mergedInput.adminContactEmployeeId || null,
         managerName: resolved.managerName,
@@ -653,7 +827,7 @@ export class ZoneService {
         coveredDistricts: mergedInput.coveredDistricts ? mergedInput.coveredDistricts.trim() : null,
         status: effectiveStatus,
         remarks: mergedInput.remarks ? mergedInput.remarks.trim() : null,
-      },
+      } as any,
       include: {
         headOffice: true,
         region: true,
@@ -665,6 +839,98 @@ export class ZoneService {
       },
     });
 
+    // If registration_no column exists in DB, run a non-blocking update
+    if (mergedInput.registrationNo && (prisma as any).$executeRawUnsafe) {
+      try {
+        await (prisma as any).$executeRawUnsafe(
+          'UPDATE zones SET registration_no = $1 WHERE id = $2',
+          mergedInput.registrationNo.trim(),
+          id
+        );
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    // 2. Handle Linked User Account Updates (Username, Status, Password Reset)
+    const targetUsername = (mergedInput.loginUsername || normalizedCode.toLowerCase().replace(/-/g, '_')).trim().toLowerCase();
+    let passwordChanged = false;
+
+    if (prisma.user?.findFirst) {
+      try {
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            OR: [
+              { username: targetUsername },
+              { username: existing.code.toLowerCase().replace(/-/g, '_') },
+              { username: existing.loginUsername },
+            ],
+          },
+        });
+
+        if (existingUser) {
+          const userUpdateData: any = {
+            username: targetUsername,
+            status: mergedInput.loginStatus || (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+          };
+
+          if (input.loginPassword && input.loginPassword.trim()) {
+            if (input.loginPassword.trim().length < 8) {
+              throw new Error('Password must be at least 8 characters long.');
+            }
+            userUpdateData.passwordHash = await hashPassword(input.loginPassword.trim());
+            passwordChanged = true;
+          }
+
+          if (prisma.user?.update) {
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: userUpdateData,
+            });
+          }
+        } else if (input.loginPassword && input.loginPassword.trim()) {
+          // If no linked user exists yet and password is provided, create it
+          if (input.loginPassword.trim().length < 8) {
+            throw new Error('Password must be at least 8 characters long.');
+          }
+          const passwordHash = await hashPassword(input.loginPassword.trim());
+          if (prisma.user?.create) {
+            await prisma.user.create({
+              data: {
+                tenantId,
+                username: targetUsername,
+                email: resolved.email || undefined,
+                phone: resolved.phone || undefined,
+                passwordHash,
+                userType: 'ADMIN',
+                status: mergedInput.loginStatus || 'ACTIVE',
+              },
+            });
+            passwordChanged = true;
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to update linked User record for Zone:', err.message);
+      }
+    }
+
+    // Build human-readable hierarchy change summary
+    const oldHierarchyDesc = existing.region
+      ? 'Head Office "' + (existing.headOffice?.name || existing.headOfficeId) + '" -> Region "' + existing.region.name + '"'
+      : 'Head Office "' + (existing.headOffice?.name || existing.headOfficeId) + '" (Direct)';
+
+    const newHierarchyDesc = resolved.region
+      ? 'Head Office "' + resolved.headOffice.name + '" -> Region "' + resolved.region.name + '"'
+      : 'Head Office "' + resolved.headOffice.name + '" (Direct)';
+
+    const hierarchySummary =
+      existing.headOfficeId !== mergedInput.headOfficeId || existing.regionId !== mergedInput.regionId
+        ? ' (Re-parented from ' + oldHierarchyDesc + ' to ' + newHierarchyDesc + ')'
+        : '';
+
+    const pwdSummary = passwordChanged ? ' [Password Reset]' : '';
+
     await this.logAudit({
       tenantId,
       userId,
@@ -672,14 +938,19 @@ export class ZoneService {
       entityId: updated.id,
       oldValues: existing,
       newValues: updated,
-      changeSummary: `Updated Zone details for "${updated.name}" [${updated.code}]`,
+      changeSummary: 'Updated Zone "' + updated.name + '" [' + updated.code + ']' + hierarchySummary + pwdSummary,
     });
 
-    return updated;
+    return {
+      ...updated,
+      registrationNo: mergedInput.registrationNo || updated.shortName || null,
+      loginUsername: targetUsername,
+      loginStatus: mergedInput.loginStatus || (effectiveStatus === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+    };
   }
 
   /**
-   * Safe status toggle (ACTIVE / INACTIVE / ARCHIVED) with reason logging
+   * Safe status toggle (ACTIVE / INACTIVE / ARCHIVED) with reason logging and user status sync
    */
   public static async toggleZoneStatus(
     tenantId: string,
@@ -708,8 +979,28 @@ export class ZoneService {
       },
     });
 
+    // Sync linked user status if exists
+    if (prisma.user?.findFirst && prisma.user?.update) {
+      try {
+        const linkedUser = await prisma.user.findFirst({
+          where: {
+            tenantId,
+            username: existing.loginUsername || existing.code.toLowerCase().replace(/-/g, '_'),
+          },
+        });
+        if (linkedUser) {
+          await prisma.user.update({
+            where: { id: linkedUser.id },
+            data: { status: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE' },
+          });
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
     const action = status === 'ACTIVE' ? 'ACTIVATE' : status === 'ARCHIVED' ? 'ARCHIVE' : 'DEACTIVATE';
-    const reasonText = reason ? ` (Reason: ${reason})` : '';
+    const reasonText = reason ? ' (Reason: ' + reason + ')' : '';
 
     await this.logAudit({
       tenantId,
@@ -718,10 +1009,15 @@ export class ZoneService {
       entityId: updated.id,
       oldValues: { status: existing.status },
       newValues: { status: updated.status, reason },
-      changeSummary: `Changed status of Zone "${updated.name}" [${updated.code}] from ${existing.status} to ${status}${reasonText}`,
+      changeSummary: 'Changed status of Zone "' + updated.name + '" [' + updated.code + '] from ' + existing.status + ' to ' + status + reasonText,
     });
 
-    return updated;
+    return {
+      ...updated,
+      registrationNo: (updated as any).registrationNo || updated.shortName || null,
+      loginUsername: existing.loginUsername,
+      loginStatus: status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
+    };
   }
 
   /**

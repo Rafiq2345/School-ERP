@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RegionService } from '../src/lib/services/region-service';
 import { prisma } from '../src/lib/db/prisma';
+import * as passwordModule from '../src/lib/auth/password';
+
+vi.mock('../src/lib/auth/password', () => ({
+  hashPassword: vi.fn().mockImplementation(async (pw: string) => `hashed_${pw}`),
+  verifyPassword: vi.fn().mockImplementation(async (pw: string, hash: string) => hash === `hashed_${pw}`),
+}));
 
 vi.mock('../src/lib/db/prisma', () => {
   const mockPrisma = {
@@ -61,6 +67,17 @@ vi.mock('../src/lib/db/prisma', () => {
       findMany: vi.fn(),
       create: vi.fn(),
     },
+    user: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    role: {
+      findFirst: vi.fn(),
+    },
+    userRole: {
+      create: vi.fn(),
+    },
   };
 
   return { prisma: mockPrisma };
@@ -75,21 +92,23 @@ describe('RegionService (Phase 2: Region Management)', () => {
     vi.clearAllMocks();
     vi.mocked(prisma.country.count).mockResolvedValue(1);
     vi.mocked(prisma.headOffice.count).mockResolvedValue(1);
+    vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.region.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
+      id: mockHeadOfficeId,
+      tenantId: mockTenantId,
+      name: 'Karachi Central Head Office',
+      code: 'HO-KHI-001',
+      city: 'Karachi',
+      state: 'Sindh',
+      country: 'Pakistan',
+      status: 'ACTIVE',
+    } as any);
   });
 
   describe('ensureDefaultRegion', () => {
     it('should create default region when count is 0', async () => {
       vi.mocked(prisma.region.count).mockResolvedValue(0);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-        name: 'Karachi Central Head Office',
-        code: 'HO-KHI-001',
-        city: 'Karachi',
-        state: 'Sindh',
-        country: 'Pakistan',
-        status: 'ACTIVE',
-      } as any);
 
       const createdObj = {
         id: 'reg-default-01',
@@ -98,6 +117,7 @@ describe('RegionService (Phase 2: Region Management)', () => {
         name: 'Southern Sindh & Karachi Region',
         code: 'REG-KHI-001',
         shortName: 'SSK-REG',
+        registrationNo: 'REG-REG-001',
         city: 'Karachi',
         state: 'Sindh',
         country: 'Pakistan',
@@ -141,7 +161,7 @@ describe('RegionService (Phase 2: Region Management)', () => {
   });
 
   describe('getRegions', () => {
-    it('should return list of regions, parent head office info, and aggregate stats', async () => {
+    it('should return list of regions, parent head office info, login user info, and aggregate stats', async () => {
       vi.mocked(prisma.region.count).mockResolvedValue(2);
       const mockList = [
         {
@@ -151,11 +171,16 @@ describe('RegionService (Phase 2: Region Management)', () => {
           name: 'Southern Sindh & Karachi Region',
           code: 'REG-KHI-001',
           shortName: 'SSK-REG',
+          registrationNo: 'REG-001',
+          addressLine1: 'Plot 10, Shahrah-e-Faisal',
           city: 'Karachi',
           state: 'Sindh',
           country: 'Pakistan',
           phone: '+92 21 34567800',
           email: 'region.south@greenwood.edu.pk',
+          logoUrl: '/uploads/reg-logo.png',
+          signatureUrl: '/uploads/reg-sig.png',
+          stampUrl: '/uploads/reg-stamp.png',
           status: 'ACTIVE',
           headOffice: { id: mockHeadOfficeId, name: 'Karachi Central Head Office', code: 'HO-KHI-001' },
           createdAt: new Date(),
@@ -168,11 +193,16 @@ describe('RegionService (Phase 2: Region Management)', () => {
           name: 'Northern Punjab Region',
           code: 'REG-LHR-001',
           shortName: 'NP-REG',
+          registrationNo: null,
+          addressLine1: 'Main Gulberg',
           city: 'Lahore',
           state: 'Punjab',
           country: 'Pakistan',
           phone: '+92 42 35789000',
           email: 'region.north@greenwood.edu.pk',
+          logoUrl: null,
+          signatureUrl: null,
+          stampUrl: null,
           status: 'ACTIVE',
           headOffice: { id: mockHeadOfficeId, name: 'Karachi Central Head Office', code: 'HO-KHI-001' },
           createdAt: new Date(),
@@ -200,32 +230,37 @@ describe('RegionService (Phase 2: Region Management)', () => {
       expect(result.stats.headOfficesCount).toBe(1);
       expect(result.stats.citiesCount).toBe(2);
       expect(result.stats.availableHeadOffices).toHaveLength(1);
+      expect(result.items[0].logoUrl).toBe('/uploads/reg-logo.png');
+      expect(result.items[0].loginUsername).toBe('reg_khi_001');
     });
   });
 
   describe('createRegion', () => {
-    it('should create region with uppercase code, parent head office attachment, and valid data', async () => {
+    it('should create region with mandatory parent head office, branding assets, and linked login user', async () => {
       vi.mocked(prisma.region.findUnique).mockResolvedValue(null);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-        name: 'Karachi Central Head Office',
-        country: 'Pakistan',
-        state: 'Sindh',
-        city: 'Karachi',
-      } as any);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.user.create).mockResolvedValue({ id: 'usr-reg-isb' } as any);
+      vi.mocked(prisma.role.findFirst).mockResolvedValue({ id: 'role-regadmin', code: 'REGION_ADMIN' } as any);
+      vi.mocked(prisma.userRole.create).mockResolvedValue({ id: 'ur-1' } as any);
 
       const input = {
         headOfficeId: mockHeadOfficeId,
         name: 'Islamabad Capital Region',
         code: 'reg-isb-001',
         shortName: 'isb-reg',
+        registrationNo: 'REG-ISB-001',
+        addressLine1: 'Sector F-8/3, Street 12',
         city: 'Islamabad',
         state: 'ICT',
         country: 'Pakistan',
         phone: '+92 51 2345600',
         email: 'isb.reg@greenwood.edu.pk',
-        coveredDistricts: 'Islamabad, Rawalpindi, Murree',
+        logoUrl: '/uploads/isb-logo.png',
+        signatureUrl: '/uploads/isb-sig.png',
+        stampUrl: '/uploads/isb-stamp.png',
+        loginUsername: 'reg_isb_admin',
+        loginPassword: 'SecurePassword2026!',
+        loginStatus: 'ACTIVE' as const,
       };
 
       const createdObj = {
@@ -235,12 +270,16 @@ describe('RegionService (Phase 2: Region Management)', () => {
         name: 'Islamabad Capital Region',
         code: 'REG-ISB-001',
         shortName: 'ISB-REG',
+        registrationNo: 'REG-ISB-001',
+        addressLine1: 'Sector F-8/3, Street 12',
         city: 'Islamabad',
         state: 'ICT',
         country: 'Pakistan',
         phone: '+92 51 2345600',
         email: 'isb.reg@greenwood.edu.pk',
-        coveredDistricts: 'Islamabad, Rawalpindi, Murree',
+        logoUrl: '/uploads/isb-logo.png',
+        signatureUrl: '/uploads/isb-sig.png',
+        stampUrl: '/uploads/isb-stamp.png',
         status: 'ACTIVE',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -251,35 +290,52 @@ describe('RegionService (Phase 2: Region Management)', () => {
       const res = await RegionService.createRegion(mockTenantId, input, mockUserId);
       expect(res.code).toBe('REG-ISB-001');
       expect(res.shortName).toBe('ISB-REG');
+      expect(res.headOfficeId).toBe(mockHeadOfficeId);
+      expect(res.logoUrl).toBe('/uploads/isb-logo.png');
+      expect(res.loginUsername).toBe('reg_isb_admin');
+
       expect(prisma.region.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             headOfficeId: mockHeadOfficeId,
             code: 'REG-ISB-001',
             name: 'Islamabad Capital Region',
+            logoUrl: '/uploads/isb-logo.png',
+            signatureUrl: '/uploads/isb-sig.png',
+            stampUrl: '/uploads/isb-stamp.png',
+          }),
+        })
+      );
+
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tenantId: mockTenantId,
+            username: 'reg_isb_admin',
+            passwordHash: 'hashed_SecurePassword2026!',
+            status: 'ACTIVE',
           }),
         })
       );
     });
 
-    it('should throw error on missing parent head office', async () => {
+    it('should throw error when parent head office is missing or invalid', async () => {
+      // 1. Empty headOfficeId
       await expect(
         RegionService.createRegion(mockTenantId, {
           headOfficeId: '',
-          name: 'Region Test',
-          code: 'REG-TEST-001',
+          name: 'Orphan Region',
+          code: 'REG-ORPHAN',
         })
-      ).rejects.toThrow('Parent Head Office selection is required.');
-    });
+      ).rejects.toThrow('Parent Head Office selection is mandatory');
 
-    it('should throw error on invalid non-existent parent head office', async () => {
+      // 2. Head office does not exist in tenant
       vi.mocked(prisma.headOffice.findFirst).mockResolvedValue(null);
-
       await expect(
         RegionService.createRegion(mockTenantId, {
           headOfficeId: 'invalid-ho-id',
-          name: 'Region Test',
-          code: 'REG-TEST-001',
+          name: 'Invalid Parent Region',
+          code: 'REG-INV',
         })
       ).rejects.toThrow('Selected Parent Head Office does not exist');
     });
@@ -303,11 +359,6 @@ describe('RegionService (Phase 2: Region Management)', () => {
     });
 
     it('should throw error if region code already exists in tenant', async () => {
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({
-        id: mockHeadOfficeId,
-        tenantId: mockTenantId,
-      } as any);
-
       vi.mocked(prisma.region.findUnique).mockResolvedValue({
         id: 'reg-existing',
         tenantId: mockTenantId,
@@ -322,48 +373,87 @@ describe('RegionService (Phase 2: Region Management)', () => {
         })
       ).rejects.toThrow('already exists');
     });
+
+    it('should throw error if login username is too short or already taken', async () => {
+      await expect(
+        RegionService.createRegion(mockTenantId, {
+          headOfficeId: mockHeadOfficeId,
+          name: 'Test Region',
+          code: 'REG-TST',
+          loginUsername: 'ab',
+        })
+      ).rejects.toThrow('Login ID / Username must be at least 3 characters.');
+
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ id: 'usr-existing' } as any);
+      await expect(
+        RegionService.createRegion(mockTenantId, {
+          headOfficeId: mockHeadOfficeId,
+          name: 'Test Region',
+          code: 'REG-TST',
+          loginUsername: 'existing_admin',
+        })
+      ).rejects.toThrow('already in use');
+    });
   });
 
   describe('updateRegion', () => {
-    it('should update region details successfully', async () => {
+    it('should update region details and reset login password successfully', async () => {
       const existing = {
         id: 'reg-1',
         tenantId: mockTenantId,
         headOfficeId: mockHeadOfficeId,
         name: 'Old Region Name',
-        code: 'REG-KHI-001',
-        city: 'Karachi',
+        code: 'REG-01',
         status: 'ACTIVE',
+        logoUrl: null,
       };
 
       vi.mocked(prisma.region.findFirst).mockResolvedValue(existing as any);
-      vi.mocked(prisma.headOffice.findFirst).mockResolvedValue({ id: mockHeadOfficeId } as any);
       vi.mocked(prisma.region.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({
+        id: 'usr-reg-1',
+        username: 'reg_01',
+        status: 'ACTIVE',
+      } as any);
 
       const updated = {
         ...existing,
-        name: 'New Region Name Updated',
+        name: 'Updated Region Name',
+        logoUrl: '/uploads/new-reg-logo.png',
       };
       vi.mocked(prisma.region.update).mockResolvedValue(updated as any);
 
       const res = await RegionService.updateRegion(
         mockTenantId,
         'reg-1',
-        { name: 'New Region Name Updated' },
+        {
+          name: 'Updated Region Name',
+          logoUrl: '/uploads/new-reg-logo.png',
+          loginPassword: 'NewStrongPassword2026!',
+        },
         mockUserId
       );
 
-      expect(res.name).toBe('New Region Name Updated');
+      expect(res.name).toBe('Updated Region Name');
       expect(prisma.region.update).toHaveBeenCalledTimes(1);
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'usr-reg-1' },
+          data: expect.objectContaining({
+            passwordHash: 'hashed_NewStrongPassword2026!',
+          }),
+        })
+      );
     });
   });
 
-  describe('toggleRegionStatus and archiveRegion', () => {
+  describe('toggleRegionStatus & archiveRegion', () => {
     it('should safely toggle status from ACTIVE to INACTIVE with audit reason', async () => {
       const existing = {
         id: 'reg-1',
         tenantId: mockTenantId,
-        name: 'Southern Sindh Region',
+        headOfficeId: mockHeadOfficeId,
+        name: 'Southern Sindh & Karachi Region',
         code: 'REG-KHI-001',
         status: 'ACTIVE',
       };
@@ -378,7 +468,7 @@ describe('RegionService (Phase 2: Region Management)', () => {
         mockTenantId,
         'reg-1',
         'INACTIVE',
-        'Reorganizing regional boundary',
+        'Administrative reorganization',
         mockUserId
       );
 
@@ -391,12 +481,13 @@ describe('RegionService (Phase 2: Region Management)', () => {
       );
     });
 
-    it('should safely archive region', async () => {
+    it('should archive region with reason', async () => {
       const existing = {
         id: 'reg-1',
         tenantId: mockTenantId,
-        name: 'Old Region',
-        code: 'REG-OLD-001',
+        headOfficeId: mockHeadOfficeId,
+        name: 'Southern Sindh & Karachi Region',
+        code: 'REG-KHI-001',
         status: 'ACTIVE',
       };
 
@@ -427,7 +518,7 @@ describe('RegionService (Phase 2: Region Management)', () => {
     it('should return audit trail for region', async () => {
       const mockLogs = [
         {
-          id: 'log-1',
+          id: 'log-reg-1',
           tenantId: mockTenantId,
           entityType: 'REGION',
           entityId: 'reg-1',
